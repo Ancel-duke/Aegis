@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aegis-staging
+  labels:
+    app.kubernetes.io/name: aegis
+    app.kubernetes.io/part-of: aegis-platform
+    environment: staging
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: aegis-staging-quota
+  namespace: aegis-staging
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    pods: "20"

@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-executor
+  namespace: default
+  labels:
+    app: aegis
+    component: executor
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: aegis
+      component: executor
+  template:
+    metadata:
+      labels:
+        app: aegis
+        component: executor
+    spec:
+      serviceAccountName: aegis-executor
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: executor
+          image: aegis-executor:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "4000"
+            - name: IN_CLUSTER
+              value: "true"
+            - name: ALLOWED_NAMESPACES
+              value: "default,production"
+            - name: DB_HOST
+              value: "postgres-service"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: executor-db-secret
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: executor-db-secret
+                  key: password
+            - name: DB_DATABASE
+              value: "executor_db"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: executor-jwt-secret
+                  key: secret
+            - name: LOKI_URL
+              value: "http://loki:3100"
+            - name: POLICY_ENGINE_URL
+              value: "http://policy-engine-service:3000/api/v1/policy/evaluate"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health/ping
+              port: 4000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1001
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aegis-executor-service
+  namespace: default
+  labels:
+    app: aegis
+    component: executor
+spec:
+  type: ClusterIP
+  ports:
+    - port: 4000
+      targetPort: 4000
+      protocol: TCP
+      name: http
+  selector:
+    app: aegis
+    component: executor

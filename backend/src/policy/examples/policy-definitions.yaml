@@ -1,0 +1,236 @@
+# Policy Definitions for Aegis Policy Engine
+# These examples demonstrate different types of policies
+
+# ==========================================
+# API Access Policies
+# ==========================================
+
+- name: "Allow Admin Full Access"
+  description: "Administrators have full access to all API endpoints"
+  type: "api_access"
+  effect: "allow"
+  priority: 100
+  conditions:
+    role: "admin"
+  actions:
+    - "*"
+  resources:
+    - "/api/*"
+  isActive: true
+
+- name: "Allow User Read Access"
+  description: "Regular users can read their own data"
+  type: "api_access"
+  effect: "allow"
+  priority: 50
+  conditions:
+    role: "user"
+  actions:
+    - "read"
+    - "list"
+  resources:
+    - "/api/users/me"
+    - "/api/profile"
+  isActive: true
+
+- name: "Deny User Delete Operations"
+  description: "Regular users cannot delete any resources"
+  type: "api_access"
+  effect: "deny"
+  priority: 200
+  conditions:
+    role: "user"
+  actions:
+    - "delete"
+  resources:
+    - "/api/*"
+  isActive: true
+
+- name: "Allow Auditor Read-Only Access"
+  description: "Auditors have read-only access to logs and audit trails"
+  type: "api_access"
+  effect: "allow"
+  priority: 75
+  conditions:
+    role: "auditor"
+  actions:
+    - "read"
+    - "list"
+  resources:
+    - "/api/audit/*"
+    - "/api/logs/*"
+    - "/api/policy/audit/logs"
+  isActive: true
+
+- name: "Rate Limit Public Endpoints"
+  description: "Limit unauthenticated access to public endpoints"
+  type: "api_access"
+  effect: "allow"
+  priority: 10
+  conditions:
+    metadata:
+      authenticated: false
+  actions:
+    - "read"
+  resources:
+    - "/api/v1/health"
+    - "/api/v1/auth/login"
+    - "/api/v1/auth/signup"
+  isActive: true
+
+# ==========================================
+# Self-Healing Policies
+# ==========================================
+
+- name: "Auto Restart Failed Services"
+  description: "Automatically restart services that have failed health checks"
+  type: "self_healing"
+  effect: "allow"
+  priority: 100
+  conditions:
+    metadata:
+      healthStatus: "unhealthy"
+      failureCount: { $gte: 3 }
+  actions:
+    - "restart"
+    - "notify"
+  resources:
+    - "service:*"
+  isActive: true
+
+- name: "Scale Up on High Load"
+  description: "Scale up services when CPU usage exceeds threshold"
+  type: "self_healing"
+  effect: "allow"
+  priority: 90
+  conditions:
+    metadata:
+      cpuUsage: { $gte: 80 }
+      duration: { $gte: 300 } # 5 minutes
+  actions:
+    - "scale_up"
+    - "alert"
+  resources:
+    - "service:api"
+    - "service:worker"
+  isActive: true
+
+- name: "Clear Cache on Memory Pressure"
+  description: "Clear cache when memory usage is high"
+  type: "self_healing"
+  effect: "allow"
+  priority: 85
+  conditions:
+    metadata:
+      memoryUsage: { $gte: 90 }
+  actions:
+    - "clear_cache"
+    - "log"
+  resources:
+    - "cache:redis"
+  isActive: true
+
+- name: "Deny Destructive Actions During Peak Hours"
+  description: "Prevent destructive operations during peak hours"
+  type: "self_healing"
+  effect: "deny"
+  priority: 200
+  conditions:
+    timeRange:
+      start: "09:00"
+      end: "17:00"
+  actions:
+    - "delete"
+    - "truncate"
+    - "drop"
+  resources:
+    - "database:*"
+  isActive: true
+
+# ==========================================
+# Data Access Policies
+# ==========================================
+
+- name: "Restrict PII Access"
+  description: "Only admins and auditors can access PII data"
+  type: "data_access"
+  effect: "allow"
+  priority: 150
+  conditions:
+    roles:
+      - "admin"
+      - "auditor"
+  actions:
+    - "read"
+    - "export"
+  resources:
+    - "data:pii:*"
+    - "table:users:email"
+    - "table:users:phone"
+  isActive: true
+
+- name: "Deny Export During Audit"
+  description: "Prevent data export when under audit"
+  type: "data_access"
+  effect: "deny"
+  priority: 250
+  conditions:
+    metadata:
+      auditInProgress: true
+  actions:
+    - "export"
+    - "backup"
+  resources:
+    - "data:*"
+  isActive: true
+
+# ==========================================
+# Resource Limit Policies
+# ==========================================
+
+- name: "Limit User API Calls"
+  description: "Limit regular users to 1000 API calls per hour"
+  type: "resource_limit"
+  effect: "allow"
+  priority: 50
+  conditions:
+    role: "user"
+    metadata:
+      hourlyCallCount: { $lt: 1000 }
+  actions:
+    - "*"
+  resources:
+    - "/api/*"
+  isActive: true
+
+- name: "Unlimited API Calls for Admins"
+  description: "No rate limiting for administrators"
+  type: "resource_limit"
+  effect: "allow"
+  priority: 100
+  conditions:
+    role: "admin"
+  actions:
+    - "*"
+  resources:
+    - "/api/*"
+  isActive: true
+
+# ==========================================
+# Emergency Policies
+# ==========================================
+
+- name: "Emergency Lockdown"
+  description: "Deny all non-admin access during security incidents"
+  type: "api_access"
+  effect: "deny"
+  priority: 1000
+  conditions:
+    metadata:
+      emergencyMode: true
+    role: "user"
+  actions:
+    - "*"
+  resources:
+    - "/api/*"
+  isActive: false # Activate manually during incidents

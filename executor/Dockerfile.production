@@ -1,0 +1,73 @@
+# ============================================
+# Aegis Executor - Production Dockerfile
+# Multi-stage build with security hardening
+# ============================================
+
+# Stage 1: Dependencies
+FROM node:20-alpine AS deps
+WORKDIR /app
+
+# Install build dependencies
+RUN apk add --no-cache python3 make g++
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --include=dev
+
+# Stage 2: Builder
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+# Copy dependencies
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# Prune devDependencies
+RUN npm prune --production
+
+# Stage 3: Production Runner
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+# Security: Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 executor
+
+# Install security updates and runtime deps
+RUN apk update && apk upgrade && \
+    apk add --no-cache dumb-init curl && \
+    rm -rf /var/cache/apk/*
+
+# Set environment
+ENV NODE_ENV=production
+ENV PORT=4000
+
+# Copy production files
+COPY --from=builder --chown=executor:nodejs /app/dist ./dist
+COPY --from=builder --chown=executor:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=executor:nodejs /app/package.json ./package.json
+
+# Create directories
+RUN mkdir -p /app/.cache && \
+    chown -R executor:nodejs /app
+
+# Switch to non-root user
+USER executor
+
+# Expose port
+EXPOSE 4000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:4000/health || exit 1
+
+# Use dumb-init
+ENTRYPOINT ["dumb-init", "--"]
+
+# Start the application
+CMD ["node", "dist/main.js"]

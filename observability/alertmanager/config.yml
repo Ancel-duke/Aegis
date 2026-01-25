@@ -1,0 +1,88 @@
+global:
+  resolve_timeout: 5m
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  receiver: 'default'
+  
+  routes:
+    # Critical alerts go to PagerDuty
+    - match:
+        severity: critical
+      receiver: 'pagerduty'
+      continue: true
+    
+    # All alerts go to Slack
+    - match_re:
+        severity: (critical|warning)
+      receiver: 'slack'
+    
+    # API alerts
+    - match:
+        component: api
+      receiver: 'api-team'
+    
+    # AI Engine alerts
+    - match:
+        component: ai-engine
+      receiver: 'ml-team'
+    
+    # Infrastructure alerts
+    - match:
+        component: infrastructure
+      receiver: 'ops-team'
+
+receivers:
+  - name: 'default'
+    webhook_configs:
+      - url: 'http://localhost:5001/alerts'
+  
+  - name: 'slack'
+    slack_configs:
+      - channel: '#aegis-alerts'
+        title: 'Aegis Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+        send_resolved: true
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+  
+  - name: 'pagerduty'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SERVICE_KEY}'
+        description: '{{ .GroupLabels.alertname }}: {{ .CommonAnnotations.summary }}'
+        severity: '{{ .GroupLabels.severity }}'
+  
+  - name: 'api-team'
+    slack_configs:
+      - channel: '#api-team'
+        title: 'API Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+  
+  - name: 'ml-team'
+    slack_configs:
+      - channel: '#ml-team'
+        title: 'AI Engine Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+  
+  - name: 'ops-team'
+    slack_configs:
+      - channel: '#ops-team'
+        title: 'Infrastructure Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'cluster', 'service']
+  
+  - source_match:
+      alertname: 'ServiceDown'
+    target_match_re:
+      alertname: '(HighAPILatency|HighAPIErrorRate)'
+    equal: ['service']

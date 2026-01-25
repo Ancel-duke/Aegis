@@ -1,0 +1,35 @@
+# Environment
+.env
+.env.local
+
+# Prometheus data
+prometheus_data/
+
+# Grafana data
+grafana_data/
+
+# Loki data
+loki_data/
+
+# Tempo data
+tempo_data/
+
+# AlertManager data
+alertmanager_data/
+
+# SSL certificates (except examples)
+ssl/
+*.crt
+*.key
+*.pem
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backups
+backups/

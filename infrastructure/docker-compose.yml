@@ -1,0 +1,258 @@
+version: '3.8'
+
+services:
+  # PostgreSQL - Backend (Users, Roles, Policies)
+  postgres-backend:
+    image: postgres:16-alpine
+    container_name: aegis-postgres-backend
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${BACKEND_DB_USER:-aegis_backend_user}
+      POSTGRES_PASSWORD: ${BACKEND_DB_PASSWORD:-change_this_password}
+      POSTGRES_DB: ${BACKEND_DB_NAME:-aegis_backend}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.utf8"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_backend_data:/var/lib/postgresql/data
+      - ./postgres/backend/init:/docker-entrypoint-initdb.d
+      - ./postgres/backend/ssl:/var/lib/postgresql/ssl
+      - ./backups/postgres-backend:/backups
+    command: >
+      postgres
+      -c ssl=on
+      -c ssl_cert_file=/var/lib/postgresql/ssl/server.crt
+      -c ssl_key_file=/var/lib/postgresql/ssl/server.key
+      -c ssl_ca_file=/var/lib/postgresql/ssl/ca.crt
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=2621kB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+    networks:
+      - aegis-backend-net
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${BACKEND_DB_USER:-aegis_backend_user} -d ${BACKEND_DB_NAME:-aegis_backend}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL - AI Engine (ML Predictions, Model Metrics)
+  postgres-ai:
+    image: postgres:16-alpine
+    container_name: aegis-postgres-ai
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${AI_DB_USER:-aegis_ai_user}
+      POSTGRES_PASSWORD: ${AI_DB_PASSWORD:-change_this_password}
+      POSTGRES_DB: ${AI_DB_NAME:-aegis_ai}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.utf8"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - '5433:5432'
+    volumes:
+      - postgres_ai_data:/var/lib/postgresql/data
+      - ./postgres/ai/init:/docker-entrypoint-initdb.d
+      - ./postgres/ai/ssl:/var/lib/postgresql/ssl
+      - ./backups/postgres-ai:/backups
+    command: >
+      postgres
+      -c ssl=on
+      -c ssl_cert_file=/var/lib/postgresql/ssl/server.crt
+      -c ssl_key_file=/var/lib/postgresql/ssl/server.key
+      -c ssl_ca_file=/var/lib/postgresql/ssl/ca.crt
+      -c max_connections=100
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+    networks:
+      - aegis-ai-net
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${AI_DB_USER:-aegis_ai_user} -d ${AI_DB_NAME:-aegis_ai}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL - Executor (Action Audit Logs)
+  postgres-executor:
+    image: postgres:16-alpine
+    container_name: aegis-postgres-executor
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${EXECUTOR_DB_USER:-aegis_executor_user}
+      POSTGRES_PASSWORD: ${EXECUTOR_DB_PASSWORD:-change_this_password}
+      POSTGRES_DB: ${EXECUTOR_DB_NAME:-aegis_executor}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.utf8"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - '5434:5432'
+    volumes:
+      - postgres_executor_data:/var/lib/postgresql/data
+      - ./postgres/executor/init:/docker-entrypoint-initdb.d
+      - ./postgres/executor/ssl:/var/lib/postgresql/ssl
+      - ./backups/postgres-executor:/backups
+    command: >
+      postgres
+      -c ssl=on
+      -c ssl_cert_file=/var/lib/postgresql/ssl/server.crt
+      -c ssl_key_file=/var/lib/postgresql/ssl/server.key
+      -c ssl_ca_file=/var/lib/postgresql/ssl/ca.crt
+      -c max_connections=100
+      -c shared_buffers=128MB
+    networks:
+      - aegis-executor-net
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${EXECUTOR_DB_USER:-aegis_executor_user} -d ${EXECUTOR_DB_NAME:-aegis_executor}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis - Caching, Rate Limiting, Sessions
+  redis:
+    image: redis:7-alpine
+    container_name: aegis-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD:-change_this_password}
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --appendonly yes
+      --appendfsync everysec
+      --tls-port 6380
+      --port 0
+      --tls-cert-file /etc/redis/ssl/redis.crt
+      --tls-key-file /etc/redis/ssl/redis.key
+      --tls-ca-cert-file /etc/redis/ssl/ca.crt
+    ports:
+      - '6379:6380'
+    volumes:
+      - redis_data:/data
+      - ./redis/ssl:/etc/redis/ssl
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+      - ./backups/redis:/backups
+    networks:
+      - aegis-backend-net
+      - aegis-ai-net
+      - aegis-executor-net
+    healthcheck:
+      test: ['CMD', 'redis-cli', '--tls', '--cacert', '/etc/redis/ssl/ca.crt', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Loki - Centralized Log Aggregation
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: aegis-loki
+    restart: unless-stopped
+    ports:
+      - '3100:3100'
+    volumes:
+      - loki_data:/loki
+      - ./loki/loki-config.yml:/etc/loki/local-config.yaml
+      - ./loki/ssl:/etc/loki/ssl
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - aegis-backend-net
+      - aegis-ai-net
+      - aegis-executor-net
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:3100/ready']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Promtail - Log Collector for Loki
+  promtail:
+    image: grafana/promtail:2.9.3
+    container_name: aegis-promtail
+    restart: unless-stopped
+    volumes:
+      - /var/log:/var/log:ro
+      - ./loki/promtail-config.yml:/etc/promtail/config.yml
+      - promtail_positions:/tmp/positions
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - aegis-backend-net
+      - aegis-ai-net
+      - aegis-executor-net
+    depends_on:
+      - loki
+
+  # Backup Service
+  backup:
+    image: postgres:16-alpine
+    container_name: aegis-backup-service
+    restart: unless-stopped
+    environment:
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-0 2 * * *}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKEND_DB_USER: ${BACKEND_DB_USER:-aegis_backend_user}
+      BACKEND_DB_PASSWORD: ${BACKEND_DB_PASSWORD:-change_this_password}
+      BACKEND_DB_NAME: ${BACKEND_DB_NAME:-aegis_backend}
+      AI_DB_USER: ${AI_DB_USER:-aegis_ai_user}
+      AI_DB_PASSWORD: ${AI_DB_PASSWORD:-change_this_password}
+      AI_DB_NAME: ${AI_DB_NAME:-aegis_ai}
+      EXECUTOR_DB_USER: ${EXECUTOR_DB_USER:-aegis_executor_user}
+      EXECUTOR_DB_PASSWORD: ${EXECUTOR_DB_PASSWORD:-change_this_password}
+      EXECUTOR_DB_NAME: ${EXECUTOR_DB_NAME:-aegis_executor}
+    volumes:
+      - ./backups:/backups
+      - ./scripts/backup.sh:/usr/local/bin/backup.sh
+      - ./scripts/restore.sh:/usr/local/bin/restore.sh
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        apk add --no-cache dcron
+        echo "$${BACKUP_SCHEDULE} /usr/local/bin/backup.sh >> /var/log/backup.log 2>&1" | crontab -
+        crond -f -l 2
+    networks:
+      - aegis-backend-net
+      - aegis-ai-net
+      - aegis-executor-net
+    depends_on:
+      - postgres-backend
+      - postgres-ai
+      - postgres-executor
+
+networks:
+  aegis-backend-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+  aegis-ai-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+  aegis-executor-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/24
+
+volumes:
+  postgres_backend_data:
+    driver: local
+  postgres_ai_data:
+    driver: local
+  postgres_executor_data:
+    driver: local
+  redis_data:
+    driver: local
+  loki_data:
+    driver: local
+  promtail_positions:
+    driver: local

@@ -1,0 +1,333 @@
+# ============================================
+# Cloudflare Configuration for Aegis
+# ============================================
+#
+# This file contains example Cloudflare configurations
+# for WAF, DDoS protection, and webhook security.
+#
+# Apply these configurations via Cloudflare dashboard
+# or Terraform/Pulumi for IaC.
+# ============================================
+
+# Example Cloudflare WAF Rules (JSON format for API)
+# Apply via: POST https://api.cloudflare.com/client/v4/zones/{zone_id}/rulesets
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflare-config
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: cloudflare
+    app.kubernetes.io/component: security
+data:
+  # WAF Custom Rules
+  waf-rules.json: |
+    {
+      "name": "Aegis WAF Rules",
+      "kind": "zone",
+      "phase": "http_request_firewall_custom",
+      "rules": [
+        {
+          "action": "block",
+          "expression": "(http.request.uri.path contains \"..\" or http.request.uri.query contains \"..\")",
+          "description": "Block path traversal attempts"
+        },
+        {
+          "action": "block",
+          "expression": "(http.request.uri.query contains \"<script\" or http.request.body.raw contains \"<script\")",
+          "description": "Block XSS attempts"
+        },
+        {
+          "action": "block",
+          "expression": "(http.request.uri.query contains \"UNION SELECT\" or http.request.body.raw contains \"UNION SELECT\")",
+          "description": "Block SQL injection attempts"
+        },
+        {
+          "action": "challenge",
+          "expression": "(cf.threat_score > 30)",
+          "description": "Challenge suspicious requests"
+        },
+        {
+          "action": "block",
+          "expression": "(not http.request.uri.path matches \"^/api/v1/.*\" and not http.request.uri.path eq \"/health\")",
+          "description": "Block non-API requests"
+        }
+      ]
+    }
+
+  # Rate Limiting Rules
+  rate-limiting.json: |
+    {
+      "name": "Aegis Rate Limiting",
+      "kind": "zone",
+      "phase": "http_ratelimit",
+      "rules": [
+        {
+          "action": "block",
+          "ratelimit": {
+            "characteristics": ["cf.colo.id", "ip.src"],
+            "period": 60,
+            "requests_per_period": 100,
+            "mitigation_timeout": 600
+          },
+          "expression": "(http.request.uri.path matches \"^/api/v1/.*\")",
+          "description": "API rate limit: 100 req/min per IP"
+        },
+        {
+          "action": "block",
+          "ratelimit": {
+            "characteristics": ["cf.colo.id", "ip.src"],
+            "period": 60,
+            "requests_per_period": 10,
+            "mitigation_timeout": 3600
+          },
+          "expression": "(http.request.uri.path eq \"/api/v1/auth/login\")",
+          "description": "Login rate limit: 10 req/min per IP"
+        },
+        {
+          "action": "block",
+          "ratelimit": {
+            "characteristics": ["cf.colo.id", "ip.src"],
+            "period": 3600,
+            "requests_per_period": 5,
+            "mitigation_timeout": 86400
+          },
+          "expression": "(http.request.uri.path eq \"/api/v1/auth/signup\")",
+          "description": "Signup rate limit: 5 req/hour per IP"
+        }
+      ]
+    }
+
+  # Page Rules
+  page-rules.json: |
+    [
+      {
+        "targets": [
+          {
+            "target": "url",
+            "constraint": {
+              "operator": "matches",
+              "value": "*aegis.example.com/api/*"
+            }
+          }
+        ],
+        "actions": [
+          {
+            "id": "ssl",
+            "value": "strict"
+          },
+          {
+            "id": "cache_level",
+            "value": "bypass"
+          },
+          {
+            "id": "security_level",
+            "value": "high"
+          }
+        ],
+        "priority": 1,
+        "status": "active"
+      }
+    ]
+
+  # DDoS Protection Settings
+  ddos-settings.json: |
+    {
+      "sensitivity_level": "high",
+      "mode": "block"
+    }
+
+  # Bot Management
+  bot-management.json: |
+    {
+      "enable_js": true,
+      "fight_mode": true,
+      "optimize_wordpress": false,
+      "suppress_session_score": false
+    }
+
+  # Security Headers (Transform Rules)
+  security-headers.json: |
+    {
+      "name": "Security Headers",
+      "kind": "zone",
+      "phase": "http_response_headers_transform",
+      "rules": [
+        {
+          "action": "rewrite",
+          "action_parameters": {
+            "headers": [
+              {
+                "operation": "set",
+                "name": "X-Frame-Options",
+                "value": "SAMEORIGIN"
+              },
+              {
+                "operation": "set",
+                "name": "X-Content-Type-Options",
+                "value": "nosniff"
+              },
+              {
+                "operation": "set",
+                "name": "X-XSS-Protection",
+                "value": "1; mode=block"
+              },
+              {
+                "operation": "set",
+                "name": "Referrer-Policy",
+                "value": "strict-origin-when-cross-origin"
+              },
+              {
+                "operation": "set",
+                "name": "Permissions-Policy",
+                "value": "geolocation=(), microphone=(), camera=()"
+              },
+              {
+                "operation": "set",
+                "name": "Strict-Transport-Security",
+                "value": "max-age=31536000; includeSubDomains; preload"
+              }
+            ]
+          },
+          "expression": "true",
+          "description": "Add security headers to all responses"
+        }
+      ]
+    }
+
+  # Webhook Configuration for Security Alerts
+  webhook-config.json: |
+    {
+      "name": "Aegis Security Webhook",
+      "description": "Webhook for security events",
+      "url": "https://api.github.com/repos/YOUR_ORG/aegis/dispatches",
+      "secret": "YOUR_WEBHOOK_SECRET",
+      "events": [
+        "firewall_events",
+        "ddos_attack",
+        "bot_management"
+      ]
+    }
+---
+# Terraform example for Cloudflare configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflare-terraform
+  namespace: aegis
+data:
+  main.tf: |
+    terraform {
+      required_providers {
+        cloudflare = {
+          source  = "cloudflare/cloudflare"
+          version = "~> 4.0"
+        }
+      }
+    }
+    
+    provider "cloudflare" {
+      api_token = var.cloudflare_api_token
+    }
+    
+    variable "cloudflare_api_token" {
+      description = "Cloudflare API token"
+      sensitive   = true
+    }
+    
+    variable "zone_id" {
+      description = "Cloudflare Zone ID"
+    }
+    
+    variable "domain" {
+      description = "Domain name"
+      default     = "aegis.example.com"
+    }
+    
+    # WAF Custom Ruleset
+    resource "cloudflare_ruleset" "aegis_waf" {
+      zone_id     = var.zone_id
+      name        = "Aegis WAF Rules"
+      description = "Custom WAF rules for Aegis"
+      kind        = "zone"
+      phase       = "http_request_firewall_custom"
+    
+      rules {
+        action      = "block"
+        expression  = "(http.request.uri.path contains \"..\")"
+        description = "Block path traversal"
+        enabled     = true
+      }
+    
+      rules {
+        action      = "challenge"
+        expression  = "(cf.threat_score > 30)"
+        description = "Challenge suspicious requests"
+        enabled     = true
+      }
+    }
+    
+    # Rate Limiting
+    resource "cloudflare_rate_limit" "api_rate_limit" {
+      zone_id = var.zone_id
+      threshold = 100
+      period    = 60
+      
+      match {
+        request {
+          url_pattern = "${var.domain}/api/*"
+          schemes     = ["HTTP", "HTTPS"]
+          methods     = ["GET", "POST", "PUT", "DELETE"]
+        }
+      }
+      
+      action {
+        mode    = "ban"
+        timeout = 600
+      }
+    }
+    
+    # DNS Records
+    resource "cloudflare_record" "api" {
+      zone_id = var.zone_id
+      name    = "api"
+      value   = "YOUR_LOAD_BALANCER_IP"
+      type    = "A"
+      proxied = true
+    }
+    
+    # Page Rule - Force HTTPS
+    resource "cloudflare_page_rule" "force_https" {
+      zone_id = var.zone_id
+      target  = "http://*${var.domain}/*"
+      priority = 1
+      
+      actions {
+        always_use_https = true
+      }
+    }
+    
+    # SSL/TLS Settings
+    resource "cloudflare_zone_settings_override" "aegis_settings" {
+      zone_id = var.zone_id
+      
+      settings {
+        ssl                      = "strict"
+        always_use_https         = "on"
+        min_tls_version          = "1.2"
+        tls_1_3                  = "on"
+        automatic_https_rewrites = "on"
+        security_level           = "high"
+        browser_check            = "on"
+        challenge_ttl            = 1800
+        privacy_pass             = "on"
+        security_header {
+          enabled            = true
+          preload            = true
+          max_age            = 31536000
+          include_subdomains = true
+          nosniff            = true
+        }
+      }
+    }

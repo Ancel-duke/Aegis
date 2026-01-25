@@ -1,0 +1,257 @@
+groups:
+  - name: aegis_api_alerts
+    interval: 30s
+    rules:
+      # High API Error Rate
+      - alert: HighAPIErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
+            /
+            sum(rate(http_requests_total[5m])) by (service)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: 'High API error rate detected'
+          description: 'Service {{ $labels.service }} has {{ $value | humanizePercentage }} error rate (>5%)'
+
+      # High API Latency
+      - alert: HighAPILatency
+        expr: |
+          histogram_quantile(0.99, 
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: 'High API latency detected'
+          description: 'Service {{ $labels.service }} P99 latency is {{ $value }}s (>2s)'
+
+      # API Rate Limiting
+      - alert: HighRateLimitHits
+        expr: rate(rate_limit_exceeded_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: 'High rate limit hits'
+          description: 'Rate limit exceeded {{ $value }} times per second'
+
+  - name: aegis_ai_engine_alerts
+    interval: 30s
+    rules:
+      # High Inference Latency
+      - alert: HighInferenceLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(ai_inference_duration_seconds_bucket[5m])) by (le, model_type)
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: ai-engine
+        annotations:
+          summary: 'High AI inference latency'
+          description: 'Model {{ $labels.model_type }} P95 latency is {{ $value }}s (>1s)'
+
+      # Model Prediction Errors
+      - alert: HighModelErrorRate
+        expr: |
+          (
+            sum(rate(ai_predictions_total{status="error"}[5m])) by (model_type)
+            /
+            sum(rate(ai_predictions_total[5m])) by (model_type)
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          component: ai-engine
+        annotations:
+          summary: 'High model error rate'
+          description: 'Model {{ $labels.model_type }} error rate is {{ $value | humanizePercentage }} (>10%)'
+
+      # Anomaly Detection Spike
+      - alert: AnomalyDetectionSpike
+        expr: |
+          rate(ai_anomalies_detected_total[5m]) > 50
+        for: 5m
+        labels:
+          severity: warning
+          component: ai-engine
+        annotations:
+          summary: 'Spike in anomaly detections'
+          description: 'Detecting {{ $value }} anomalies per second'
+
+  - name: aegis_executor_alerts
+    interval: 30s
+    rules:
+      # Failed K8s Actions
+      - alert: HighExecutorFailureRate
+        expr: |
+          (
+            sum(rate(executor_actions_total{status="failed"}[5m])) by (action_type)
+            /
+            sum(rate(executor_actions_total[5m])) by (action_type)
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: critical
+          component: executor
+        annotations:
+          summary: 'High executor failure rate'
+          description: 'Action {{ $labels.action_type }} failure rate is {{ $value | humanizePercentage }} (>20%)'
+
+      # Repeated Failed Actions
+      - alert: RepeatedFailedActions
+        expr: |
+          sum(increase(executor_actions_total{status="failed"}[15m])) by (namespace, resource_name) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: executor
+        annotations:
+          summary: 'Repeated failed actions on resource'
+          description: 'Resource {{ $labels.namespace }}/{{ $labels.resource_name }} has {{ $value }} failures in 15min'
+
+  - name: aegis_policy_alerts
+    interval: 30s
+    rules:
+      # High Policy Denial Rate
+      - alert: HighPolicyDenialRate
+        expr: |
+          (
+            sum(rate(policy_evaluations_total{result="deny"}[5m]))
+            /
+            sum(rate(policy_evaluations_total[5m]))
+          ) > 0.3
+        for: 10m
+        labels:
+          severity: warning
+          component: policy-engine
+        annotations:
+          summary: 'High policy denial rate'
+          description: 'Policy denial rate is {{ $value | humanizePercentage }} (>30%)'
+
+  - name: aegis_database_alerts
+    interval: 30s
+    rules:
+      # High Database Connection Usage
+      - alert: HighDatabaseConnections
+        expr: |
+          (
+            sum(pg_stat_activity_count) by (database)
+            /
+            pg_settings_max_connections
+          ) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: 'High database connection usage'
+          description: 'Database {{ $labels.database }} using {{ $value | humanizePercentage }} of max connections (>80%)'
+
+      # Slow Queries
+      - alert: SlowDatabaseQueries
+        expr: pg_slow_queries > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: 'Slow database queries detected'
+          description: '{{ $value }} slow queries detected in database'
+
+  - name: aegis_redis_alerts
+    interval: 30s
+    rules:
+      # High Redis Memory Usage
+      - alert: HighRedisMemory
+        expr: |
+          (
+            redis_memory_used_bytes
+            /
+            redis_memory_max_bytes
+          ) > 0.9
+        for: 5m
+        labels:
+          severity: critical
+          component: redis
+        annotations:
+          summary: 'High Redis memory usage'
+          description: 'Redis memory usage is {{ $value | humanizePercentage }} (>90%)'
+
+      # High Redis Evictions
+      - alert: HighRedisEvictions
+        expr: rate(redis_evicted_keys_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: redis
+        annotations:
+          summary: 'High Redis key evictions'
+          description: 'Redis evicting {{ $value }} keys per second'
+
+  - name: aegis_infrastructure_alerts
+    interval: 30s
+    rules:
+      # Service Down
+      - alert: ServiceDown
+        expr: up{job=~"aegis-.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: 'Service is down'
+          description: 'Service {{ $labels.job }} is down'
+
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: |
+          100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: 'High CPU usage'
+          description: 'Instance {{ $labels.instance }} CPU usage is {{ $value }}% (>80%)'
+
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)
+            /
+            node_memory_MemTotal_bytes
+          ) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: 'High memory usage'
+          description: 'Instance {{ $labels.instance }} memory usage is {{ $value }}% (>85%)'
+
+      # Low Disk Space
+      - alert: LowDiskSpace
+        expr: |
+          (
+            node_filesystem_avail_bytes{mountpoint="/"}
+            /
+            node_filesystem_size_bytes{mountpoint="/"}
+          ) * 100 < 15
+        for: 5m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: 'Low disk space'
+          description: 'Instance {{ $labels.instance }} has {{ $value }}% disk space remaining (<15%)'

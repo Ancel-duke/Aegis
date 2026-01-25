@@ -1,0 +1,184 @@
+version: '3.8'
+
+services:
+  # Prometheus - Metrics Collection
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: aegis-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - ./prometheus/ssl:/etc/prometheus/ssl
+      - prometheus_data:/prometheus
+    networks:
+      - aegis-observability
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:9090/-/healthy']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana - Visualization
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: aegis-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3000/grafana
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    ports:
+      - '3001:3000'
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana_data:/var/lib/grafana
+    networks:
+      - aegis-observability
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:3000/api/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Loki - Log Aggregation (already configured in infrastructure)
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: aegis-loki-obs
+    restart: unless-stopped
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - '3100:3100'
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    networks:
+      - aegis-observability
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:3100/ready']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.91.0
+    container_name: aegis-otel-collector
+    restart: unless-stopped
+    command: ['--config=/etc/otel-collector-config.yml']
+    ports:
+      - '4317:4317'   # OTLP gRPC receiver
+      - '4318:4318'   # OTLP HTTP receiver
+      - '8888:8888'   # Prometheus metrics exposed by the collector
+      - '8889:8889'   # Prometheus exporter metrics
+      - '13133:13133' # Health check extension
+    volumes:
+      - ./otel/otel-collector-config.yml:/etc/otel-collector-config.yml
+    networks:
+      - aegis-observability
+    depends_on:
+      - prometheus
+      - loki
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:13133/']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Tempo - Distributed Tracing
+  tempo:
+    image: grafana/tempo:2.3.1
+    container_name: aegis-tempo
+    restart: unless-stopped
+    command: ['-config.file=/etc/tempo.yml']
+    ports:
+      - '3200:3200'   # Tempo HTTP
+      - '4317:4317'   # OTLP gRPC
+      - '4318:4318'   # OTLP HTTP
+    volumes:
+      - ./tempo/tempo.yml:/etc/tempo.yml
+      - tempo_data:/tmp/tempo
+    networks:
+      - aegis-observability
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:3200/ready']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Promtail - Log Collector
+  promtail:
+    image: grafana/promtail:2.9.3
+    container_name: aegis-promtail-obs
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/config.yml
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    networks:
+      - aegis-observability
+    depends_on:
+      - loki
+
+  # Node Exporter - Host Metrics
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: aegis-node-exporter
+    restart: unless-stopped
+    command:
+      - '--path.rootfs=/host'
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    ports:
+      - '9100:9100'
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    networks:
+      - aegis-observability
+
+  # AlertManager - Alert Management
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: aegis-alertmanager
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/alertmanager'
+    ports:
+      - '9093:9093'
+    volumes:
+      - ./alertmanager/config.yml:/etc/alertmanager/config.yml
+      - alertmanager_data:/alertmanager
+    networks:
+      - aegis-observability
+    depends_on:
+      - prometheus
+
+networks:
+  aegis-observability:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  tempo_data:
+  alertmanager_data:

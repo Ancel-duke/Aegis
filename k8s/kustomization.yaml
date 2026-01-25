@@ -1,0 +1,64 @@
+# ============================================
+# Aegis Kubernetes Kustomization
+# Base configuration for all environments
+# ============================================
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: aegis-platform
+
+namespace: aegis
+
+# Common labels
+commonLabels:
+  app.kubernetes.io/part-of: aegis-platform
+  app.kubernetes.io/managed-by: kustomize
+
+# Resources to include
+resources:
+  # Namespace and Quotas
+  - namespace.yaml
+  
+  # Secrets and ConfigMaps
+  - secrets.yaml
+  - configmaps.yaml
+  
+  # Network Policies
+  - network-policies.yaml
+  
+  # Application Deployments
+  - backend-deployment.yaml
+  - ai-engine-deployment.yaml
+  - executor-deployment.yaml
+  
+  # Database StatefulSets
+  - postgres-statefulset.yaml
+  - redis-statefulset.yaml
+  
+  # Ingress
+  - ingress.yaml
+  
+  # CronJobs
+  - cronjobs.yaml
+
+# Image configuration (override in overlays)
+images:
+  - name: aegis/backend
+    newName: ghcr.io/your-org/aegis-backend
+    newTag: latest
+  - name: aegis/ai-engine
+    newName: ghcr.io/your-org/aegis-ai-engine
+    newTag: latest
+  - name: aegis/executor
+    newName: ghcr.io/your-org/aegis-executor
+    newTag: latest
+
+# ConfigMap generator for common config
+configMapGenerator:
+  - name: aegis-common-config
+    literals:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json

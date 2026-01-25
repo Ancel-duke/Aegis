@@ -1,0 +1,331 @@
+# Default deny all ingress traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: aegis
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Default deny all egress traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: aegis
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+---
+# Allow DNS resolution
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: aegis
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Backend Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-network-policy
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: backend
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: backend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+    # Allow from AI Engine
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-engine
+      ports:
+        - protocol: TCP
+          port: 3000
+    # Allow from Executor
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: executor
+      ports:
+        - protocol: TCP
+          port: 3000
+    # Allow Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: aegis-monitoring
+      ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    # Allow to PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-backend
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow to Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow to monitoring
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: aegis-monitoring
+      ports:
+        - protocol: TCP
+          port: 4318
+        - protocol: TCP
+          port: 3100
+---
+# AI Engine Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-engine-network-policy
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: ai-engine
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ai-engine
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from Backend (Policy Engine queries)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: backend
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Allow Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: aegis-monitoring
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    # Allow to PostgreSQL (AI DB)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-ai
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow to Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow to Backend (Policy Engine)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: backend
+      ports:
+        - protocol: TCP
+          port: 3000
+    # Allow to Executor
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: executor
+      ports:
+        - protocol: TCP
+          port: 4000
+    # Allow to monitoring
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: aegis-monitoring
+      ports:
+        - protocol: TCP
+          port: 4318
+        - protocol: TCP
+          port: 3100
+        - protocol: TCP
+          port: 9090
+---
+# Executor Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: executor-network-policy
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: executor
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: executor
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from AI Engine
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ai-engine
+      ports:
+        - protocol: TCP
+          port: 4000
+    # Allow from Backend (admin actions)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: backend
+      ports:
+        - protocol: TCP
+          port: 4000
+    # Allow Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: aegis-monitoring
+      ports:
+        - protocol: TCP
+          port: 4000
+  egress:
+    # Allow to PostgreSQL (Executor DB)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres-executor
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow to Backend (Policy Engine)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: backend
+      ports:
+        - protocol: TCP
+          port: 3000
+    # Allow to Kubernetes API
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # Allow to monitoring
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: aegis-monitoring
+      ports:
+        - protocol: TCP
+          port: 4318
+        - protocol: TCP
+          port: 3100
+---
+# Database Network Policies - PostgreSQL
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-network-policy
+  namespace: aegis
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: database
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from application pods only
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - backend
+                  - ai-engine
+                  - executor
+      ports:
+        - protocol: TCP
+          port: 5432
+  egress: []  # No egress needed
+---
+# Redis Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-network-policy
+  namespace: aegis
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from application pods
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - backend
+                  - ai-engine
+                  - executor
+      ports:
+        - protocol: TCP
+          port: 6379
+  egress: []  # No egress needed

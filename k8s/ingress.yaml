@@ -1,0 +1,103 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aegis-ingress
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: aegis
+    app.kubernetes.io/component: ingress
+  annotations:
+    # Nginx Ingress Controller
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    
+    # Rate limiting
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    
+    # Timeouts
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    
+    # Body size
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header X-XSS-Protection "1; mode=block" always;
+      add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+      add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';" always;
+    
+    # Cert-manager for TLS
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    
+    # Cloudflare (if using Cloudflare proxy)
+    nginx.ingress.kubernetes.io/proxy-real-ip-cidr: "173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/13,104.24.0.0/14,172.64.0.0/13,131.0.72.0/22"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.aegis.example.com
+      secretName: aegis-tls
+  rules:
+    - host: api.aegis.example.com
+      http:
+        paths:
+          # Backend API routes
+          - path: /api/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 3000
+          
+          # Backend health check
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 3000
+---
+# Internal ingress for service-to-service communication (optional)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aegis-internal-ingress
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: aegis
+    app.kubernetes.io/component: internal-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx-internal
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx-internal
+  rules:
+    - host: ai-engine.aegis.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ai-engine
+                port:
+                  number: 8000
+    
+    - host: executor.aegis.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: executor
+                port:
+                  number: 4000

@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # Executor Service
+  executor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aegis-executor
+    restart: unless-stopped
+    ports:
+      - '4000:4000'
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      SERVICE_NAME: aegis-executor
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: executor_user
+      DB_PASSWORD: executor_password
+      DB_DATABASE: executor_db
+      JWT_SECRET: ${JWT_SECRET:-test_jwt_secret}
+      IN_CLUSTER: 'false'
+      KUBECONFIG_PATH: /kubeconfig/config
+      ALLOWED_NAMESPACES: default,production,staging
+      POLICY_ENGINE_URL: http://policy-engine:3000/api/v1/policy/evaluate
+      LOKI_URL: http://loki:3100
+      REQUIRE_ACTION_SIGNATURE: 'false'
+    volumes:
+      - ${HOME}/.kube/config:/kubeconfig/config:ro
+    depends_on:
+      - postgres
+    networks:
+      - aegis-network
+    healthcheck:
+      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:4000/health/ping', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL for audit logs
+  postgres:
+    image: postgres:16-alpine
+    container_name: executor-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: executor_user
+      POSTGRES_PASSWORD: executor_password
+      POSTGRES_DB: executor_db
+    ports:
+      - '5434:5432'
+    volumes:
+      - executor_postgres_data:/var/lib/postgresql/data
+    networks:
+      - aegis-network
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U executor_user -d executor_db']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  aegis-network:
+    driver: bridge
+
+volumes:
+  executor_postgres_data:

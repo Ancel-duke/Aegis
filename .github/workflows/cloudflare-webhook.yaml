@@ -1,0 +1,80 @@
+name: Cloudflare Webhook Security
+
+on:
+  repository_dispatch:
+    types: [cloudflare-webhook]
+
+jobs:
+  # ============================================
+  # Handle Cloudflare Security Events
+  # ============================================
+  handle-security-event:
+    name: Handle Security Event
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Verify Cloudflare signature
+        run: |
+          # Verify the webhook signature
+          SIGNATURE="${{ github.event.client_payload.signature }}"
+          TIMESTAMP="${{ github.event.client_payload.timestamp }}"
+          BODY='${{ toJson(github.event.client_payload.data) }}'
+          
+          # Calculate expected signature
+          EXPECTED=$(echo -n "${TIMESTAMP}.${BODY}" | openssl dgst -sha256 -hmac "${{ secrets.CLOUDFLARE_WEBHOOK_SECRET }}" | cut -d' ' -f2)
+          
+          if [ "$SIGNATURE" != "$EXPECTED" ]; then
+            echo "Invalid signature"
+            exit 1
+          fi
+          
+          echo "Signature verified"
+      
+      - name: Parse event type
+        id: event
+        run: |
+          EVENT_TYPE="${{ github.event.client_payload.data.type }}"
+          echo "EVENT_TYPE=${EVENT_TYPE}" >> $GITHUB_OUTPUT
+      
+      - name: Handle DDoS Alert
+        if: steps.event.outputs.EVENT_TYPE == 'ddos_attack'
+        run: |
+          echo "DDoS attack detected"
+          
+          # Scale up infrastructure
+          kubectl -n aegis scale deployment/backend --replicas=10
+          kubectl -n aegis scale deployment/ai-engine --replicas=5
+          
+          # Enable additional rate limiting
+          # (This would be done via Cloudflare API or your custom logic)
+      
+      - name: Handle WAF Block
+        if: steps.event.outputs.EVENT_TYPE == 'waf_block'
+        run: |
+          echo "WAF blocked suspicious request"
+          
+          # Log the blocked request for analysis
+          IP="${{ github.event.client_payload.data.ip }}"
+          PATH="${{ github.event.client_payload.data.path }}"
+          RULE="${{ github.event.client_payload.data.rule_id }}"
+          
+          echo "Blocked IP: $IP, Path: $PATH, Rule: $RULE"
+      
+      - name: Notify Security Team
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          payload: |
+            {
+              "text": "🛡️ Cloudflare Security Event",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "🛡️ *Cloudflare Security Event*\nType: `${{ steps.event.outputs.EVENT_TYPE }}`\nTime: `${{ github.event.client_payload.timestamp }}`"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

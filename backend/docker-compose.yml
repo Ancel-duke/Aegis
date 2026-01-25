@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: aegis-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aegis_user
+      POSTGRES_PASSWORD: aegis_password
+      POSTGRES_DB: aegis_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - aegis-network
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U aegis_user -d aegis_db']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: aegis-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      - aegis-network
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Aegis API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aegis-api
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      API_PREFIX: api/v1
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: aegis_user
+      DB_PASSWORD: aegis_password
+      DB_DATABASE: aegis_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ''
+      JWT_SECRET: ${JWT_SECRET:-your_jwt_secret_change_this}
+      JWT_ACCESS_EXPIRATION: 15m
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-your_refresh_secret_change_this}
+      JWT_REFRESH_EXPIRATION: 7d
+      BCRYPT_ROUNDS: 10
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - aegis-network
+    healthcheck:
+      test: ['CMD', 'node', '-e', "require('http').get('http://localhost:3000/api/v1/health/ping', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  aegis-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

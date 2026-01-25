@@ -1,0 +1,308 @@
+# Database Backup CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: database-backup
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: database-backup
+    app.kubernetes.io/component: backup
+    app.kubernetes.io/part-of: aegis-platform
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: database-backup
+        spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          
+          restartPolicy: OnFailure
+          
+          containers:
+            - name: backup
+              image: postgres:16-alpine
+              
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  DATE=$(date +%Y%m%d_%H%M%S)
+                  
+                  echo "Starting database backups at $DATE"
+                  
+                  # Backup Backend DB
+                  PGPASSWORD=$BACKEND_DB_PASSWORD pg_dump \
+                    -h postgres-backend \
+                    -U aegis_backend_user \
+                    -d aegis_backend \
+                    -F c \
+                    > /backups/backend_${DATE}.dump
+                  
+                  echo "Backend backup completed"
+                  
+                  # Backup AI DB
+                  PGPASSWORD=$AI_DB_PASSWORD pg_dump \
+                    -h postgres-ai \
+                    -U aegis_ai_user \
+                    -d aegis_ai \
+                    -F c \
+                    > /backups/ai_${DATE}.dump
+                  
+                  echo "AI backup completed"
+                  
+                  # Backup Executor DB
+                  PGPASSWORD=$EXECUTOR_DB_PASSWORD pg_dump \
+                    -h postgres-executor \
+                    -U aegis_executor_user \
+                    -d aegis_executor \
+                    -F c \
+                    > /backups/executor_${DATE}.dump
+                  
+                  echo "Executor backup completed"
+                  
+                  # Upload to S3 (if configured)
+                  if [ -n "$S3_BUCKET" ]; then
+                    aws s3 cp /backups/backend_${DATE}.dump s3://${S3_BUCKET}/backups/backend/
+                    aws s3 cp /backups/ai_${DATE}.dump s3://${S3_BUCKET}/backups/ai/
+                    aws s3 cp /backups/executor_${DATE}.dump s3://${S3_BUCKET}/backups/executor/
+                    echo "Uploaded to S3"
+                  fi
+                  
+                  # Cleanup old local backups (keep 7 days)
+                  find /backups -name "*.dump" -mtime +7 -delete
+                  
+                  echo "Backup completed successfully"
+              
+              env:
+                - name: BACKEND_DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: aegis-postgres-secrets
+                      key: BACKEND_DB_PASSWORD
+                - name: AI_DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: aegis-postgres-secrets
+                      key: AI_DB_PASSWORD
+                - name: EXECUTOR_DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: aegis-postgres-secrets
+                      key: EXECUTOR_DB_PASSWORD
+                - name: S3_BUCKET
+                  value: ""  # Set to your S3 bucket name
+              
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backups
+          
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: backup-pvc
+---
+# PVC for backups
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-pvc
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: database-backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 50Gi
+---
+# AI Model Retraining CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ai-model-retrain
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: ai-model-retrain
+    app.kubernetes.io/component: ml
+    app.kubernetes.io/part-of: aegis-platform
+spec:
+  schedule: "0 4 * * 0"  # Weekly on Sunday at 4 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: ai-model-retrain
+        spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          
+          restartPolicy: OnFailure
+          
+          containers:
+            - name: retrain
+              image: aegis/ai-engine:latest
+              
+              command:
+                - python
+                - -m
+                - app.tasks.retrain_models
+              
+              envFrom:
+                - configMapRef:
+                    name: aegis-ai-engine-config
+              
+              env:
+                - name: AI_DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: aegis-ai-engine-secrets
+                      key: AI_DB_PASSWORD
+              
+              resources:
+                requests:
+                  cpu: 1000m
+                  memory: 4Gi
+                limits:
+                  cpu: 4000m
+                  memory: 8Gi
+              
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              
+              volumeMounts:
+                - name: models
+                  mountPath: /app/models
+                - name: tmp
+                  mountPath: /tmp
+          
+          volumes:
+            - name: models
+              persistentVolumeClaim:
+                claimName: ai-models-pvc
+            - name: tmp
+              emptyDir: {}
+---
+# Metrics Cleanup CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: metrics-cleanup
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: metrics-cleanup
+    app.kubernetes.io/component: maintenance
+spec:
+  schedule: "0 3 * * *"  # Daily at 3 AM
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: metrics-cleanup
+        spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          
+          restartPolicy: OnFailure
+          
+          containers:
+            - name: cleanup
+              image: postgres:16-alpine
+              
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  echo "Starting metrics cleanup"
+                  
+                  # Cleanup old AI predictions (keep 30 days)
+                  PGPASSWORD=$AI_DB_PASSWORD psql \
+                    -h postgres-ai \
+                    -U aegis_ai_user \
+                    -d aegis_ai \
+                    -c "DELETE FROM prediction_history WHERE created_at < NOW() - INTERVAL '30 days';"
+                  
+                  # Cleanup old audit logs (keep 90 days)
+                  PGPASSWORD=$EXECUTOR_DB_PASSWORD psql \
+                    -h postgres-executor \
+                    -U aegis_executor_user \
+                    -d aegis_executor \
+                    -c "DELETE FROM action_audit_logs WHERE created_at < NOW() - INTERVAL '90 days';"
+                  
+                  echo "Cleanup completed"
+              
+              env:
+                - name: AI_DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: aegis-postgres-secrets
+                      key: AI_DB_PASSWORD
+                - name: EXECUTOR_DB_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: aegis-postgres-secrets
+                      key: EXECUTOR_DB_PASSWORD
+              
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+              
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL

@@ -1,0 +1,121 @@
+{
+  "dashboard": {
+    "title": "Aegis Platform Overview",
+    "tags": ["aegis", "overview"],
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "API Request Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total[5m])) by (service)",
+            "legendFormat": "{{service}}"
+          }
+        ],
+        "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 }
+      },
+      {
+        "id": 2,
+        "title": "API Error Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) by (service) / sum(rate(http_requests_total[5m])) by (service)",
+            "legendFormat": "{{service}}"
+          }
+        ],
+        "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 }
+      },
+      {
+        "id": 3,
+        "title": "API Latency (P95)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))",
+            "legendFormat": "{{service}}"
+          }
+        ],
+        "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 }
+      },
+      {
+        "id": 4,
+        "title": "Anomalies Detected",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(ai_anomalies_detected_total[5m])",
+            "legendFormat": "Anomalies/sec"
+          }
+        ],
+        "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 }
+      },
+      {
+        "id": 5,
+        "title": "Executor Actions",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "sum(rate(executor_actions_total[5m])) by (action_type, status)",
+            "legendFormat": "{{action_type}} ({{status}})"
+          }
+        ],
+        "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 }
+      },
+      {
+        "id": 6,
+        "title": "Policy Evaluations",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "sum(rate(policy_evaluations_total[5m])) by (result)",
+            "legendFormat": "{{result}}"
+          }
+        ],
+        "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 }
+      },
+      {
+        "id": 7,
+        "title": "CPU Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+            "legendFormat": "{{instance}}"
+          }
+        ],
+        "gridPos": { "x": 0, "y": 24, "w": 8, "h": 8 }
+      },
+      {
+        "id": 8,
+        "title": "Memory Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "((node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes) * 100",
+            "legendFormat": "{{instance}}"
+          }
+        ],
+        "gridPos": { "x": 8, "y": 24, "w": 8, "h": 8 }
+      },
+      {
+        "id": 9,
+        "title": "Active Services",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "count(up{job=~\"aegis-.*\"} == 1)"
+          }
+        ],
+        "gridPos": { "x": 16, "y": 24, "w": 8, "h": 8 }
+      }
+    ]
+  }
+}

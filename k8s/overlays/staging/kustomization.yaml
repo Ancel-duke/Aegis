@@ -1,0 +1,89 @@
+# ============================================
+# Staging Environment Overlay
+# ============================================
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: aegis-staging
+
+resources:
+  - ../../
+  - namespace.yaml
+
+# Staging-specific patches
+patches:
+  # Reduce replicas for staging
+  - target:
+      kind: Deployment
+      name: backend
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+  
+  - target:
+      kind: Deployment
+      name: ai-engine
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  
+  - target:
+      kind: Deployment
+      name: executor
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  
+  # Reduce resources for staging
+  - target:
+      kind: Deployment
+      name: backend
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "100m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "128Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "512Mi"
+  
+  # Update ingress host
+  - target:
+      kind: Ingress
+      name: aegis-ingress
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: staging.aegis.example.com
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: staging.aegis.example.com
+
+# Staging images (use develop branch)
+images:
+  - name: aegis/backend
+    newName: ghcr.io/your-org/aegis-backend
+    newTag: develop
+  - name: aegis/ai-engine
+    newName: ghcr.io/your-org/aegis-ai-engine
+    newTag: develop
+  - name: aegis/executor
+    newName: ghcr.io/your-org/aegis-executor
+    newTag: develop
+
+# Staging-specific config
+configMapGenerator:
+  - name: aegis-common-config
+    behavior: merge
+    literals:
+      - ENVIRONMENT=staging
+      - LOG_LEVEL=debug

@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # AI Engine Service
+  ai-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aegis-ai-engine
+    restart: unless-stopped
+    ports:
+      - '8000:8000'
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ai_engine_user
+      DB_PASSWORD: ai_engine_password
+      DB_NAME: ai_engine_db
+      PROMETHEUS_URL: http://prometheus:9090
+      LOKI_URL: http://loki:3100
+      POLICY_ENGINE_URL: http://policy-engine:3000/api/v1/policy/evaluate
+      API_KEY: ${API_KEY:-dev_api_key}
+    networks:
+      - aegis-network
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import requests; requests.get('http://localhost:8000/health').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL for AI data
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-engine-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ai_engine_user
+      POSTGRES_PASSWORD: ai_engine_password
+      POSTGRES_DB: ai_engine_db
+    ports:
+      - '5433:5432'
+    volumes:
+      - ai_postgres_data:/var/lib/postgresql/data
+    networks:
+      - aegis-network
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ai_engine_user -d ai_engine_db']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  aegis-network:
+    driver: bridge
+
+volumes:
+  ai_postgres_data:

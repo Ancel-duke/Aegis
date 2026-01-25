@@ -1,0 +1,150 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegis-backend-config
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/component: api
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  
+  # Database
+  DB_HOST: "postgres-backend"
+  DB_PORT: "5432"
+  DB_NAME: "aegis_backend"
+  DB_USER: "aegis_backend_user"
+  DB_SSL: "true"
+  DB_POOL_SIZE: "20"
+  
+  # Redis
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_TLS: "true"
+  
+  # JWT
+  JWT_EXPIRES_IN: "15m"
+  JWT_REFRESH_EXPIRES_IN: "7d"
+  
+  # Rate Limiting
+  RATE_LIMIT_TTL: "60"
+  RATE_LIMIT_MAX: "100"
+  
+  # CORS
+  CORS_ORIGINS: "https://aegis.example.com"
+  
+  # Logging
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+  
+  # Observability
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.aegis-monitoring:4318"
+  PROMETHEUS_ENABLED: "true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegis-ai-engine-config
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: ai-engine
+    app.kubernetes.io/component: ml
+data:
+  ENVIRONMENT: "production"
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  
+  # Database
+  AI_DB_HOST: "postgres-ai"
+  AI_DB_PORT: "5432"
+  AI_DB_NAME: "aegis_ai"
+  AI_DB_USER: "aegis_ai_user"
+  AI_DB_SSL_MODE: "require"
+  AI_DB_POOL_SIZE: "10"
+  
+  # Redis
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_TLS: "true"
+  
+  # Model settings
+  MODEL_PATH: "/app/models"
+  ANOMALY_THRESHOLD: "0.7"
+  FAILURE_THRESHOLD: "0.8"
+  
+  # Policy Engine
+  POLICY_ENGINE_URL: "http://backend:3000/api/v1/policy/evaluate"
+  
+  # Observability
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.aegis-monitoring:4318"
+  PROMETHEUS_ENABLED: "true"
+  LOKI_URL: "http://loki.aegis-monitoring:3100"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegis-executor-config
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: executor
+    app.kubernetes.io/component: k8s-ops
+data:
+  NODE_ENV: "production"
+  PORT: "4000"
+  
+  # Database
+  EXECUTOR_DB_HOST: "postgres-executor"
+  EXECUTOR_DB_PORT: "5432"
+  EXECUTOR_DB_NAME: "aegis_executor"
+  EXECUTOR_DB_USER: "aegis_executor_user"
+  EXECUTOR_DB_SSL: "true"
+  
+  # Kubernetes
+  K8S_IN_CLUSTER: "true"
+  ALLOWED_NAMESPACES: "default,production,staging"
+  
+  # Policy Engine
+  POLICY_ENGINE_URL: "http://backend:3000/api/v1/policy/evaluate"
+  
+  # Rate Limiting
+  RATE_LIMIT_CRITICAL_ACTIONS: "5"
+  RATE_LIMIT_WINDOW: "60"
+  
+  # Security
+  REQUIRE_ACTION_SIGNATURE: "true"
+  
+  # Observability
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.aegis-monitoring:4318"
+  LOKI_URL: "http://loki.aegis-monitoring:3100"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegis-postgres-init
+  namespace: aegis
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+data:
+  init-db.sh: |
+    #!/bin/bash
+    set -e
+    
+    # Create databases and users
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
+      -- Backend Database
+      CREATE USER aegis_backend_user WITH PASSWORD '$BACKEND_DB_PASSWORD';
+      CREATE DATABASE aegis_backend OWNER aegis_backend_user;
+      GRANT ALL PRIVILEGES ON DATABASE aegis_backend TO aegis_backend_user;
+      
+      -- AI Database  
+      CREATE USER aegis_ai_user WITH PASSWORD '$AI_DB_PASSWORD';
+      CREATE DATABASE aegis_ai OWNER aegis_ai_user;
+      GRANT ALL PRIVILEGES ON DATABASE aegis_ai TO aegis_ai_user;
+      
+      -- Executor Database
+      CREATE USER aegis_executor_user WITH PASSWORD '$EXECUTOR_DB_PASSWORD';
+      CREATE DATABASE aegis_executor OWNER aegis_executor_user;
+      GRANT ALL PRIVILEGES ON DATABASE aegis_executor TO aegis_executor_user;
+    EOSQL
