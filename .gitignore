@@ -25,10 +25,9 @@ build/
 **/.env
 !**/.env.example
 
-# IDE / Editor
+# Editor
 .vscode/
 .idea/
-.cursor/
 *.swp
 *.swo
 *~
