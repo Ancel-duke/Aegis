@@ -11,6 +11,11 @@ export class UpdateUserDto {
   @MaxLength(50)
   lastName?: string;
 
+  @IsString()
+  @IsOptional()
+  @MaxLength(500)
+  avatar?: string;
+
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;

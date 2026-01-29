@@ -2,8 +2,12 @@
 export interface User {
   id: string;
   email: string;
-  username: string;
+  firstName?: string;
+  lastName?: string;
+  username?: string; // Computed from firstName or email
+  avatar?: string;
   role: UserRole;
+  roles?: Array<{ name: string }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -20,11 +24,14 @@ export interface AuthState {
 export interface Alert {
   id: string;
   title: string;
-  message: string;
+  description?: string;
+  message?: string; // Alias for description
   severity: AlertSeverity;
-  source: string;
+  status: 'open' | 'acknowledged' | 'resolved';
+  source?: string;
   timestamp: string;
-  resolved: boolean;
+  createdAt?: string;
+  resolved: boolean; // Computed from status
   resolvedAt?: string;
   resolvedBy?: string;
   metadata?: Record<string, unknown>;
@@ -44,23 +51,21 @@ export interface AlertFilters {
 export interface Policy {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   type: PolicyType;
-  rules: PolicyRule[];
-  enabled: boolean;
+  effect: 'allow' | 'deny';
+  actions: string[];
+  resources: string[];
+  conditions: Record<string, unknown>;
+  priority: number;
+  isActive: boolean;
+  enabled?: boolean; // Alias for isActive
   createdAt: string;
   updatedAt: string;
-  createdBy: string;
+  createdBy?: string;
 }
 
-export type PolicyType = 'access' | 'self-healing' | 'rate-limit' | 'rbac';
-
-export interface PolicyRule {
-  id: string;
-  condition: string;
-  action: string;
-  priority: number;
-}
+export type PolicyType = 'api_access' | 'self_healing' | 'data_access' | 'resource_limit';
 
 // Metrics types
 export interface SystemMetrics {

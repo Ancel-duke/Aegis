@@ -10,6 +10,8 @@ import { AreaChart } from '@/components/charts/area-chart';
 import { SkeletonChart, SkeletonCard } from '@/components/ui/skeleton';
 import { useAIStore } from '@/stores/ai-store';
 import { formatRelativeTime, formatPercentage, cn } from '@/lib/utils';
+import { AnomalyPrediction } from '@/types';
+import { useWebSocket } from '@/lib/websocket';
 import {
   Brain,
   TrendingUp,
@@ -39,89 +41,80 @@ const metricOptions = [
 
 export default function AIInsightsPage() {
   const {
-    predictions,
+    anomalies,
     insights,
-    healingActions,
-    anomalyTrends,
-    severityHeatmap,
-    filters,
+    severityTrends,
     isLoading,
-    fetchPredictions,
+    fetchAnomalies,
     fetchInsights,
-    fetchHealingActions,
-    fetchAnomalyTrends,
-    fetchSeverityHeatmap,
-    setFilters,
+    addAnomalyFromWebSocket,
   } = useAIStore();
 
   const [timeRange, setTimeRange] = useState('24h');
   const [selectedMetric, setSelectedMetric] = useState('');
 
+  // WebSocket connection for real-time anomalies
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || process.env.NEXT_PUBLIC_API_URL?.replace('http', 'ws') || 'ws://localhost:3000';
+  const { isConnected } = useWebSocket({
+    url: `${wsUrl}/ws`,
+    onMessage: (message) => {
+      if (message.type === 'anomaly' && message.payload) {
+        addAnomalyFromWebSocket(message.payload as AnomalyPrediction);
+      }
+    },
+  });
+
   useEffect(() => {
-    fetchPredictions();
+    fetchAnomalies();
     fetchInsights();
-    fetchHealingActions();
-    fetchAnomalyTrends();
-    fetchSeverityHeatmap();
-  }, []);
-
-  useEffect(() => {
-    // Calculate date range
-    const now = new Date();
-    let startDate: Date;
-
-    switch (timeRange) {
-      case '7d':
-        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case '30d':
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        break;
-      default:
-        startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    }
-
-    setFilters({
-      startDate: startDate.toISOString(),
-      endDate: now.toISOString(),
-      metric: selectedMetric || undefined,
-    });
-  }, [timeRange, selectedMetric]);
+  }, [fetchAnomalies, fetchInsights]);
 
   // Stats calculations
-  const totalAnomalies = predictions.filter((p) => p.isAnomaly).length;
-  const criticalAnomalies = predictions.filter(
+  const totalAnomalies = anomalies.filter((p) => p.isAnomaly).length;
+  const criticalAnomalies = anomalies.filter(
     (p) => p.isAnomaly && p.severity === 'critical'
   ).length;
   const avgAnomalyScore =
-    predictions.length > 0
-      ? predictions.reduce((sum, p) => sum + p.anomalyScore, 0) / predictions.length
+    anomalies.length > 0
+      ? anomalies.reduce((sum, p) => sum + p.anomalyScore, 0) / anomalies.length
       : 0;
-  const completedActions = healingActions.filter(
-    (a) => a.status === 'completed'
-  ).length;
 
   // Severity distribution for bar chart
   const severityDistribution = [
     {
       name: 'Critical',
-      value: predictions.filter((p) => p.severity === 'critical').length,
+      value: severityTrends.critical || 0,
       color: '#ef4444',
     },
     {
       name: 'High',
-      value: predictions.filter((p) => p.severity === 'high').length,
+      value: severityTrends.high || 0,
       color: '#f97316',
     },
     {
       name: 'Medium',
-      value: predictions.filter((p) => p.severity === 'medium').length,
+      value: severityTrends.medium || 0,
       color: '#eab308',
     },
     {
       name: 'Low',
-      value: predictions.filter((p) => p.severity === 'low').length,
+      value: severityTrends.low || 0,
       color: '#22c55e',
+    },
+  ];
+
+  // Prepare trend data for charts in TimeSeriesData format
+  const anomalyTrendsData: TimeSeriesData[] = [
+    {
+      name: 'Anomalies',
+      data: anomalies
+        .filter((a) => a.isAnomaly)
+        .map((a) => ({
+          timestamp: a.timestamp,
+          value: a.anomalyScore,
+          label: a.severity,
+        })),
+      color: '#ef4444',
     },
   ];
 
@@ -174,8 +167,7 @@ export default function AIInsightsPage() {
             variant="outline"
             size="icon"
             onClick={() => {
-              fetchPredictions();
-              fetchAnomalyTrends();
+              fetchAnomalies();
             }}
           >
             <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
@@ -236,8 +228,8 @@ export default function AIInsightsPage() {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-muted-foreground">Auto-Healed</p>
-                    <p className="text-3xl font-bold">{completedActions}</p>
+                    <p className="text-sm text-muted-foreground">Total Predictions</p>
+                    <p className="text-3xl font-bold">{anomalies.length}</p>
                   </div>
                   <TrendingUp className="h-8 w-8 text-green-500" />
                 </div>
@@ -260,7 +252,7 @@ export default function AIInsightsPage() {
               <SkeletonChart />
             ) : (
               <AreaChart
-                data={anomalyTrends}
+                data={anomalyTrendsData}
                 height={250}
                 formatYAxis={(v) => v.toString()}
               />
@@ -300,7 +292,7 @@ export default function AIInsightsPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {predictions.filter((p) => p.isAnomaly).slice(0, 5).map((prediction) => (
+              {anomalies.filter((p) => p.isAnomaly).slice(0, 5).map((prediction) => (
                 <div
                   key={prediction.id}
                   className="flex items-center gap-4 p-3 rounded-lg bg-muted/50"
@@ -327,7 +319,7 @@ export default function AIInsightsPage() {
                 </div>
               ))}
 
-              {predictions.filter((p) => p.isAnomaly).length === 0 && (
+              {anomalies.filter((p) => p.isAnomaly).length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
                   <Brain className="h-12 w-12 mx-auto mb-2 opacity-50" />
                   <p>No anomalies detected</p>
@@ -390,82 +382,6 @@ export default function AIInsightsPage() {
         </Card>
       </div>
 
-      {/* Recent Healing Actions */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Self-Healing Actions</CardTitle>
-            <CardDescription>Recent automated remediation actions</CardDescription>
-          </div>
-          <Link href="/health">
-            <Button variant="ghost" size="sm">
-              View all <ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
-          </Link>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">Action</th>
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">Target</th>
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">Status</th>
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">Triggered</th>
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">Duration</th>
-                </tr>
-              </thead>
-              <tbody>
-                {healingActions.slice(0, 5).map((action) => (
-                  <tr key={action.id} className="border-b last:border-0">
-                    <td className="py-3 px-4">
-                      <Badge variant="outline" className="capitalize">
-                        {action.type.replace('_', ' ')}
-                      </Badge>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-sm">{action.target}</td>
-                    <td className="py-3 px-4">
-                      <Badge
-                        variant={
-                          action.status === 'completed'
-                            ? 'success'
-                            : action.status === 'failed'
-                            ? 'destructive'
-                            : action.status === 'in_progress'
-                            ? 'warning'
-                            : 'secondary'
-                        }
-                        className="capitalize"
-                      >
-                        {action.status.replace('_', ' ')}
-                      </Badge>
-                    </td>
-                    <td className="py-3 px-4 text-sm text-muted-foreground">
-                      {formatRelativeTime(action.triggeredAt)}
-                    </td>
-                    <td className="py-3 px-4 text-sm text-muted-foreground">
-                      {action.completedAt
-                        ? `${Math.round(
-                            (new Date(action.completedAt).getTime() -
-                              new Date(action.triggeredAt).getTime()) /
-                              1000
-                          )}s`
-                        : '-'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {healingActions.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground">
-                <Zap className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>No healing actions recorded</p>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

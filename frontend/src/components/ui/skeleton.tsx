@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils';
+import { Card, CardContent } from './card';
 
 function Skeleton({
   className,
@@ -14,40 +15,22 @@ function Skeleton({
 
 function SkeletonCard() {
   return (
-    <div className="rounded-lg border bg-card p-6">
-      <div className="space-y-4">
-        <Skeleton className="h-4 w-1/3" />
-        <Skeleton className="h-8 w-2/3" />
-        <Skeleton className="h-4 w-1/4" />
-      </div>
-    </div>
+    <Card>
+      <CardContent className="p-6">
+        <Skeleton className="h-4 w-24 mb-2" />
+        <Skeleton className="h-8 w-16 mb-2" />
+        <Skeleton className="h-3 w-32" />
+      </CardContent>
+    </Card>
   );
 }
 
-function SkeletonTable({ rows = 5 }: { rows?: number }) {
+function SkeletonChart({ height = 250 }: { height?: number }) {
   return (
-    <div className="space-y-3">
-      {/* Header */}
-      <div className="flex gap-4">
-        <Skeleton className="h-10 flex-1" />
-      </div>
-      {/* Rows */}
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex gap-4">
-          <Skeleton className="h-12 flex-1" />
-        </div>
-      ))}
+    <div className="w-full" style={{ height }}>
+      <Skeleton className="h-full w-full" />
     </div>
   );
 }
 
-function SkeletonChart() {
-  return (
-    <div className="rounded-lg border bg-card p-6">
-      <Skeleton className="h-4 w-1/4 mb-4" />
-      <Skeleton className="h-64 w-full" />
-    </div>
-  );
-}
-
-export { Skeleton, SkeletonCard, SkeletonTable, SkeletonChart };
+export { Skeleton, SkeletonCard, SkeletonChart };

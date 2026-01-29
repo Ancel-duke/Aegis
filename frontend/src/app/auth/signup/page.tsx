@@ -14,11 +14,15 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useToast } from '@/components/ui/toaster';
 
 const signupSchema = z.object({
-  username: z
+  firstName: z
     .string()
-    .min(3, 'Username must be at least 3 characters')
-    .max(30, 'Username must be less than 30 characters')
-    .regex(/^[a-zA-Z0-9_-]+$/, 'Username can only contain letters, numbers, underscores, and dashes'),
+    .min(1, 'First name is required')
+    .max(50, 'First name must be less than 50 characters'),
+  lastName: z
+    .string()
+    .min(1, 'Last name is required')
+    .max(50, 'Last name must be less than 50 characters')
+    .optional(),
   email: z.string().email('Invalid email address'),
   password: z
     .string()
@@ -63,7 +67,7 @@ export default function SignupPage() {
   const onSubmit = async (data: SignupFormData) => {
     try {
       clearError();
-      await signup(data.email, data.password, data.username);
+      await signup(data.email, data.password, data.firstName);
       showSuccess('Account Created', 'Welcome to Aegis!');
       router.push('/dashboard');
     } catch (err) {
@@ -98,13 +102,24 @@ export default function SignupPage() {
 
             <div className="space-y-2">
               <Input
-                {...register('username')}
+                {...register('firstName')}
                 type="text"
-                label="Username"
-                placeholder="johndoe"
-                error={errors.username?.message}
-                autoComplete="username"
+                label="First Name"
+                placeholder="John"
+                error={errors.firstName?.message}
+                autoComplete="given-name"
                 autoFocus
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Input
+                {...register('lastName')}
+                type="text"
+                label="Last Name (Optional)"
+                placeholder="Doe"
+                error={errors.lastName?.message}
+                autoComplete="family-name"
               />
             </div>
 

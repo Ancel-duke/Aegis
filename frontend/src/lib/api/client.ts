@@ -16,6 +16,14 @@ const apiClient: AxiosInstance = axios.create({
 // Request interceptor
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    // Add JWT token from HttpOnly cookie (handled by browser) or from storage
+    // If backend uses HttpOnly cookies, the browser automatically includes them
+    // If not, we need to get from storage and add to Authorization header
+    const accessToken = getAccessToken();
+    if (accessToken && config.headers) {
+      config.headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+
     // Add CSRF token if available
     const csrfToken = getCsrfToken();
     if (csrfToken && config.headers) {
@@ -37,6 +45,20 @@ apiClient.interceptors.request.use(
   }
 );
 
+function getAccessToken(): string | null {
+  if (typeof document === 'undefined') return null;
+  // Try to get from cookie (if not HttpOnly)
+  const match = document.cookie.match(/accessToken=([^;]+)/);
+  if (match) return match[1];
+  
+  // Fallback to localStorage (less secure)
+  try {
+    return localStorage.getItem('accessToken');
+  } catch {
+    return null;
+  }
+}
+
 // Response interceptor
 apiClient.interceptors.response.use(
   (response) => response,
@@ -48,11 +70,31 @@ apiClient.interceptors.response.use(
       originalRequest._retry = true;
 
       try {
-        await refreshToken();
+        // Get refresh token from storage (if not HttpOnly)
+        const refreshToken = getRefreshToken();
+        if (!refreshToken) {
+          throw new Error('No refresh token available');
+        }
+
+        // Call refresh endpoint
+        await axios.post<{ accessToken: string; refreshToken: string }>(
+          `${API_URL}/api/v1/auth/refresh`,
+          { refreshToken },
+          { withCredentials: true }
+        );
+
+        // Retry original request
         return apiClient(originalRequest);
       } catch (refreshError) {
         // Redirect to login if refresh fails
         if (typeof window !== 'undefined') {
+          // Clear auth state
+          try {
+            sessionStorage.removeItem('aegis-auth');
+            localStorage.removeItem('refreshToken');
+          } catch {
+            // ignore
+          }
           window.location.href = '/auth/login';
         }
         return Promise.reject(refreshError);
@@ -79,12 +121,18 @@ function getCsrfToken(): string | null {
   return match ? match[1] : null;
 }
 
-async function refreshToken(): Promise<void> {
-  await axios.post(
-    `${API_URL}/api/v1/auth/refresh`,
-    {},
-    { withCredentials: true }
-  );
+function getRefreshToken(): string | null {
+  if (typeof document === 'undefined') return null;
+  // Try to get from cookie (if not HttpOnly) or localStorage
+  const match = document.cookie.match(/refreshToken=([^;]+)/);
+  if (match) return match[1];
+  
+  // Fallback to localStorage (less secure, but needed if backend doesn't set HttpOnly)
+  try {
+    return localStorage.getItem('refreshToken');
+  } catch {
+    return null;
+  }
 }
 
 // Type-safe request methods

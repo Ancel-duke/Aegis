@@ -1,180 +1,102 @@
 import { create } from 'zustand';
-import { Policy, PolicyType, PaginatedResponse } from '@/types';
+import { Policy } from '@/types';
 import { api } from '@/lib/api/client';
 
 interface PoliciesState {
   policies: Policy[];
-  selectedPolicy: Policy | null;
+  evaluationLogs: Array<{
+    id: string;
+    userId: string;
+    action: string;
+    resource: string;
+    result: 'allow' | 'deny';
+    timestamp: string;
+  }>;
   isLoading: boolean;
   error: string | null;
-  filters: {
-    type?: PolicyType;
-    enabled?: boolean;
-    search?: string;
-  };
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
 }
 
 interface PoliciesActions {
-  fetchPolicies: (page?: number, limit?: number) => Promise<void>;
-  fetchPolicy: (id: string) => Promise<void>;
-  createPolicy: (policy: Omit<Policy, 'id' | 'createdAt' | 'updatedAt' | 'createdBy'>) => Promise<Policy>;
-  updatePolicy: (id: string, policy: Partial<Policy>) => Promise<Policy>;
+  fetchPolicies: () => Promise<void>;
+  createPolicy: (policy: Omit<Policy, 'id' | 'createdAt' | 'updatedAt' | 'createdBy'>) => Promise<void>;
+  updatePolicy: (id: string, updates: Partial<Policy>) => Promise<void>;
   deletePolicy: (id: string) => Promise<void>;
-  togglePolicy: (id: string) => Promise<void>;
-  setFilters: (filters: Partial<PoliciesState['filters']>) => void;
-  clearFilters: () => void;
-  selectPolicy: (policy: Policy | null) => void;
+  fetchEvaluationLogs: (filters?: { userId?: string; action?: string }) => Promise<void>;
   clearError: () => void;
 }
 
 type PoliciesStore = PoliciesState & PoliciesActions;
 
-const initialState: PoliciesState = {
+export const usePoliciesStore = create<PoliciesStore>((set) => ({
   policies: [],
-  selectedPolicy: null,
+  evaluationLogs: [],
   isLoading: false,
   error: null,
-  filters: {},
-  pagination: {
-    page: 1,
-    limit: 20,
-    total: 0,
-    totalPages: 0,
-  },
-};
 
-export const usePoliciesStore = create<PoliciesStore>((set, get) => ({
-  ...initialState,
-
-  fetchPolicies: async (page = 1, limit = 20) => {
+  fetchPolicies: async () => {
     set({ isLoading: true, error: null });
-
     try {
-      const { filters } = get();
-      const response = await api.get<PaginatedResponse<Policy>>('/policies', {
-        page,
-        limit,
-        ...filters,
-      });
-
+      const response = await api.get<Policy[]>('/policy');
+      set({ policies: response, isLoading: false });
+    } catch (error) {
       set({
-        policies: response.items,
+        error: error instanceof Error ? error.message : 'Failed to fetch policies',
         isLoading: false,
-        pagination: {
-          page: response.page,
-          limit: response.limit,
-          total: response.total,
-          totalPages: response.totalPages,
-        },
       });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to fetch policies';
-      set({ error: message, isLoading: false });
-    }
-  },
-
-  fetchPolicy: async (id: string) => {
-    set({ isLoading: true, error: null });
-
-    try {
-      const policy = await api.get<Policy>(`/policies/${id}`);
-      set({ selectedPolicy: policy, isLoading: false });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to fetch policy';
-      set({ error: message, isLoading: false });
     }
   },
 
   createPolicy: async (policyData) => {
-    set({ isLoading: true, error: null });
-
     try {
-      const policy = await api.post<Policy>('/policies', policyData);
-      const { policies } = get();
-
+      const newPolicy = await api.post<Policy>('/policy', policyData);
+      set((state) => ({ policies: [...state.policies, newPolicy] }));
+    } catch (error) {
       set({
-        policies: [policy, ...policies],
+        error: error instanceof Error ? error.message : 'Failed to create policy',
+      });
+      throw error;
+    }
+  },
+
+  updatePolicy: async (id, updates) => {
+    try {
+      const updated = await api.patch<Policy>(`/policy/${id}`, updates);
+      set((state) => ({
+        policies: state.policies.map((p) => (p.id === id ? updated : p)),
+      }));
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Failed to update policy',
+      });
+      throw error;
+    }
+  },
+
+  deletePolicy: async (id) => {
+    try {
+      await api.delete(`/policy/${id}`);
+      set((state) => ({
+        policies: state.policies.filter((p) => p.id !== id),
+      }));
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Failed to delete policy',
+      });
+      throw error;
+    }
+  },
+
+  fetchEvaluationLogs: async (filters) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await api.get('/policy/audit/logs', filters);
+      set({ evaluationLogs: response, isLoading: false });
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Failed to fetch evaluation logs',
         isLoading: false,
       });
-
-      return policy;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to create policy';
-      set({ error: message, isLoading: false });
-      throw error;
     }
-  },
-
-  updatePolicy: async (id: string, policyData: Partial<Policy>) => {
-    set({ isLoading: true, error: null });
-
-    try {
-      const policy = await api.patch<Policy>(`/policies/${id}`, policyData);
-      const { policies, selectedPolicy } = get();
-
-      set({
-        policies: policies.map((p) => (p.id === id ? policy : p)),
-        selectedPolicy: selectedPolicy?.id === id ? policy : selectedPolicy,
-        isLoading: false,
-      });
-
-      return policy;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to update policy';
-      set({ error: message, isLoading: false });
-      throw error;
-    }
-  },
-
-  deletePolicy: async (id: string) => {
-    set({ isLoading: true, error: null });
-
-    try {
-      await api.delete(`/policies/${id}`);
-      const { policies, selectedPolicy } = get();
-
-      set({
-        policies: policies.filter((p) => p.id !== id),
-        selectedPolicy: selectedPolicy?.id === id ? null : selectedPolicy,
-        isLoading: false,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to delete policy';
-      set({ error: message, isLoading: false });
-      throw error;
-    }
-  },
-
-  togglePolicy: async (id: string) => {
-    const { policies } = get();
-    const policy = policies.find((p) => p.id === id);
-    
-    if (!policy) return;
-
-    try {
-      await get().updatePolicy(id, { enabled: !policy.enabled });
-    } catch (error) {
-      throw error;
-    }
-  },
-
-  setFilters: (newFilters) => {
-    const { filters } = get();
-    set({ filters: { ...filters, ...newFilters } });
-  },
-
-  clearFilters: () => {
-    set({ filters: {} });
-  },
-
-  selectPolicy: (policy: Policy | null) => {
-    set({ selectedPolicy: policy });
   },
 
   clearError: () => set({ error: null }),

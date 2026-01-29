@@ -7,11 +7,12 @@ import {
   HttpStatus,
   ClassSerializerInterceptor,
   UseInterceptors,
+  Req,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Public } from './decorators/public.decorator';
 import { JwtRefreshAuthGuard } from './guards/jwt-refresh-auth.guard';
 import { GetUser } from './decorators/get-user.decorator';
@@ -29,8 +30,11 @@ export class AuthController {
   @UseGuards(RateLimitGuard)
   @RateLimit({ ttl: 3600, limit: 5 })
   @HttpCode(HttpStatus.CREATED)
-  async signup(@Body() signupDto: SignupDto) {
-    return await this.authService.signup(signupDto);
+  async signup(@Body() signupDto: SignupDto, @Req() req: Request) {
+    return await this.authService.signup(signupDto, {
+      ipAddress: req.ip ?? req.socket?.remoteAddress,
+      userAgent: req.get('user-agent'),
+    });
   }
 
   @Post('login')
@@ -38,23 +42,32 @@ export class AuthController {
   @UseGuards(RateLimitGuard)
   @RateLimit({ ttl: 900, limit: 10 })
   @HttpCode(HttpStatus.OK)
-  async login(@Body() loginDto: LoginDto) {
-    return await this.authService.login(loginDto);
+  async login(@Body() loginDto: LoginDto, @Req() req: Request) {
+    return await this.authService.login(loginDto, {
+      ipAddress: req.ip ?? req.socket?.remoteAddress,
+      userAgent: req.get('user-agent'),
+    });
   }
 
   @Post('refresh')
   @Public()
   @UseGuards(JwtRefreshAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async refreshTokens(@GetUser() user: any) {
+  async refreshTokens(@GetUser() user: { userId: string; refreshToken: string }) {
     return await this.authService.refreshTokens(user.userId, user.refreshToken);
   }
 
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async logout(@GetUser('id') userId: string) {
-    await this.authService.logout(userId);
+  async logout(
+    @GetUser('id') userId: string,
+    @Req() req: Request,
+  ) {
+    await this.authService.logout(userId, {
+      ipAddress: req.ip ?? req.socket?.remoteAddress,
+      userAgent: req.get('user-agent'),
+    });
     return { message: 'Logged out successfully' };
   }
 }

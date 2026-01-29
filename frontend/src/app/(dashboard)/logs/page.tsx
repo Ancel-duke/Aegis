@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { useLogsStore, logLevelColors } from '@/stores/logs-store';
-import { useWebSocket, WS_EVENTS } from '@/lib/websocket';
+import { useWebSocket } from '@/lib/websocket';
 import { formatDate, cn } from '@/lib/utils';
 import { LogEntry, LogLevel } from '@/types';
 import {
@@ -49,10 +49,11 @@ export default function LogsPage() {
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   // WebSocket for real-time logs
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || process.env.NEXT_PUBLIC_API_URL?.replace('http', 'ws') || 'ws://localhost:3000';
   const { isConnected } = useWebSocket({
-    url: `${process.env.NEXT_PUBLIC_WS_URL}/ws/logs`,
+    url: `${wsUrl}/ws`,
     onMessage: (message) => {
-      if (message.type === WS_EVENTS.LOG_ENTRY && isStreaming) {
+      if (message.type === 'log' && isStreaming && message.payload) {
         addLog(message.payload as LogEntry);
       }
     },
@@ -61,7 +62,16 @@ export default function LogsPage() {
   useEffect(() => {
     fetchLogs();
     fetchServices();
-  }, []);
+    
+    // Auto-refresh every 5 seconds
+    const interval = setInterval(() => {
+      if (!isStreaming) {
+        fetchLogs();
+      }
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, [fetchLogs, fetchServices, isStreaming]);
 
   // Auto-scroll when streaming
   useEffect(() => {
@@ -109,14 +119,24 @@ export default function LogsPage() {
 
   const downloadLogs = () => {
     const content = displayedLogs
-      .map((log) => `[${log.timestamp}] [${log.level.toUpperCase()}] [${log.service}] ${log.message}`)
+      .map((log) => {
+        const timestamp = new Date(log.timestamp).toISOString();
+        return `[${timestamp}] [${log.level.toUpperCase()}] [${log.service}] ${log.message}`;
+      })
       .join('\n');
     
-    const blob = new Blob([content], { type: 'text/plain' });
+    // Add CSV header
+    const csvContent = 'Timestamp,Level,Service,Message,TraceID\n' +
+      displayedLogs.map((log) => {
+        const timestamp = new Date(log.timestamp).toISOString();
+        return `"${timestamp}","${log.level}","${log.service}","${log.message.replace(/"/g, '""')}","${log.traceId || ''}"`;
+      }).join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `aegis-logs-${new Date().toISOString()}.txt`;
+    a.download = `aegis-logs-${new Date().toISOString()}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
