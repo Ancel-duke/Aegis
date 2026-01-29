@@ -1,30 +1,27 @@
 import { create } from 'zustand';
-import { LogEntry, LogLevel, LogFilters, PaginatedResponse } from '@/types';
+import { LogEntry, LogLevel } from '@/types';
 import { api } from '@/lib/api/client';
 
 interface LogsState {
   logs: LogEntry[];
-  selectedLog: LogEntry | null;
-  filters: LogFilters;
-  isLoading: boolean;
-  error: string | null;
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
+  filters: {
+    level?: LogLevel[];
+    service?: string[];
+    startDate?: string;
+    endDate?: string;
+    search?: string;
   };
   availableServices: string[];
+  isLoading: boolean;
   isStreaming: boolean;
+  error: string | null;
 }
 
 interface LogsActions {
-  fetchLogs: (page?: number, limit?: number) => Promise<void>;
-  fetchLog: (id: string) => Promise<void>;
+  fetchLogs: () => Promise<void>;
   fetchServices: () => Promise<void>;
-  setFilters: (filters: Partial<LogFilters>) => void;
+  setFilters: (filters: Partial<LogsState['filters']>) => void;
   clearFilters: () => void;
-  selectLog: (log: LogEntry | null) => void;
   addLog: (log: LogEntry) => void;
   setStreaming: (streaming: boolean) => void;
   clearError: () => void;
@@ -32,117 +29,78 @@ interface LogsActions {
 
 type LogsStore = LogsState & LogsActions;
 
-const initialFilters: LogFilters = {
-  level: undefined,
-  service: undefined,
-  startDate: undefined,
-  endDate: undefined,
-  search: undefined,
-};
-
-const initialState: LogsState = {
-  logs: [],
-  selectedLog: null,
-  filters: initialFilters,
-  isLoading: false,
-  error: null,
-  pagination: {
-    page: 1,
-    limit: 100,
-    total: 0,
-    totalPages: 0,
-  },
-  availableServices: [],
-  isStreaming: false,
+export const logLevelColors: Record<LogLevel, string> = {
+  debug: 'text-gray-500',
+  info: 'text-blue-500',
+  warn: 'text-yellow-500',
+  error: 'text-red-500',
+  fatal: 'text-red-700',
 };
 
 export const useLogsStore = create<LogsStore>((set, get) => ({
-  ...initialState,
+  logs: [],
+  filters: {},
+  availableServices: [],
+  isLoading: false,
+  isStreaming: false,
+  error: null,
 
-  fetchLogs: async (page = 1, limit = 100) => {
+  fetchLogs: async () => {
     set({ isLoading: true, error: null });
-
     try {
       const { filters } = get();
-      const params = {
-        page,
-        limit,
-        ...filters,
-        level: filters.level?.join(','),
-        service: filters.service?.join(','),
-      };
-
-      const response = await api.get<PaginatedResponse<LogEntry>>('/logs', params);
-
+      const params: Record<string, unknown> = {};
+      if (filters.level?.length) params.level = filters.level.join(',');
+      if (filters.service?.length) params.service = filters.service.join(',');
+      if (filters.startDate) params.startDate = filters.startDate;
+      if (filters.endDate) params.endDate = filters.endDate;
+      if (filters.search) params.search = filters.search;
+      
+      // Note: Backend may not have /logs endpoint yet, this is a placeholder
+      const response = await api.get<LogEntry[]>('/logs', params).catch(() => []);
+      set({ logs: response, isLoading: false });
+    } catch (error) {
       set({
-        logs: response.items,
+        error: error instanceof Error ? error.message : 'Failed to fetch logs',
         isLoading: false,
-        pagination: {
-          page: response.page,
-          limit: response.limit,
-          total: response.total,
-          totalPages: response.totalPages,
-        },
       });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to fetch logs';
-      set({ error: message, isLoading: false });
-    }
-  },
-
-  fetchLog: async (id: string) => {
-    set({ isLoading: true, error: null });
-
-    try {
-      const log = await api.get<LogEntry>(`/logs/${id}`);
-      set({ selectedLog: log, isLoading: false });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to fetch log';
-      set({ error: message, isLoading: false });
     }
   },
 
   fetchServices: async () => {
     try {
-      const response = await api.get<{ services: string[] }>('/logs/services');
-      set({ availableServices: response.services });
+      // Extract unique services from logs or fetch from backend
+      const { logs } = get();
+      const services = Array.from(new Set(logs.map((l) => l.service)));
+      set({ availableServices: services });
     } catch (error) {
-      console.error('Failed to fetch services:', error);
+      set({ error: error instanceof Error ? error.message : 'Failed to fetch services' });
     }
   },
 
-  setFilters: (newFilters: Partial<LogFilters>) => {
-    const { filters } = get();
-    set({ filters: { ...filters, ...newFilters } });
+  setFilters: (newFilters) => {
+    set((state) => ({
+      filters: { ...state.filters, ...newFilters },
+    }));
   },
 
-  clearFilters: () => {
-    set({ filters: initialFilters });
+  clearFilters: () => set({ filters: {} }),
+
+  addLog: (log) => {
+    set((state) => {
+      const exists = state.logs.some((l) => l.id === log.id);
+      if (exists) {
+        return {
+          logs: state.logs.map((l) => (l.id === log.id ? log : l)),
+        };
+      }
+      // Keep only last 1000 logs
+      const newLogs = [log, ...state.logs].slice(0, 1000);
+      return { logs: newLogs };
+    });
   },
 
-  selectLog: (log: LogEntry | null) => {
-    set({ selectedLog: log });
-  },
-
-  addLog: (log: LogEntry) => {
-    const { logs } = get();
-    // Keep only last 1000 logs in memory when streaming
-    const newLogs = [log, ...logs].slice(0, 1000);
-    set({ logs: newLogs });
-  },
-
-  setStreaming: (streaming: boolean) => {
-    set({ isStreaming: streaming });
-  },
+  setStreaming: (streaming) => set({ isStreaming: streaming }),
 
   clearError: () => set({ error: null }),
 }));
-
-// Log level colors for UI
-export const logLevelColors: Record<LogLevel, string> = {
-  debug: 'text-gray-500 bg-gray-500/10',
-  info: 'text-blue-500 bg-blue-500/10',
-  warn: 'text-yellow-500 bg-yellow-500/10',
-  error: 'text-red-500 bg-red-500/10',
-  fatal: 'text-red-700 bg-red-700/10',
-};

@@ -42,7 +42,14 @@ export function useWebSocket({
     setIsConnecting(true);
 
     try {
-      ws.current = new WebSocket(url);
+      // Get JWT token for authentication
+      const token = typeof window !== 'undefined' 
+        ? (localStorage.getItem('accessToken') || document.cookie.match(/accessToken=([^;]+)/)?.[1])
+        : null;
+      
+      // Add token to URL query or use auth header (Socket.IO style)
+      const wsUrl = token ? `${url}?token=${token}` : url;
+      ws.current = new WebSocket(wsUrl);
 
       ws.current.onopen = () => {
         setIsConnected(true);

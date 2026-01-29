@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { useAlertsStore } from '@/stores/alerts-store';
-import { useWebSocket, WS_EVENTS } from '@/lib/websocket';
+import { useWebSocket } from '@/lib/websocket';
 import { useToast } from '@/components/ui/toaster';
 import { formatRelativeTime, getSeverityColor, cn } from '@/lib/utils';
 import { Alert, AlertSeverity } from '@/types';
@@ -29,20 +29,13 @@ const severityOptions: AlertSeverity[] = ['critical', 'high', 'medium', 'low', '
 export default function AlertsPage() {
   const {
     alerts,
-    filteredAlerts,
     filters,
     isLoading,
-    wsConnected,
-    unreadCount,
     fetchAlerts,
     setFilters,
-    clearFilters,
     resolveAlert,
-    unresolveAlert,
-    addAlert,
-    updateAlert,
-    setWsConnected,
-    markAllAsRead,
+    acknowledgeAlert,
+    addAlertFromWebSocket,
   } = useAlertsStore();
 
   const { success, error: showError } = useToast();
@@ -51,41 +44,67 @@ export default function AlertsPage() {
   const [showFilters, setShowFilters] = useState(false);
 
   // WebSocket connection
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || process.env.NEXT_PUBLIC_API_URL?.replace('http', 'ws') || 'ws://localhost:3000';
   const { isConnected, isConnecting } = useWebSocket({
-    url: `${process.env.NEXT_PUBLIC_WS_URL}/ws/alerts`,
-    onOpen: () => {
-      setWsConnected(true);
-    },
-    onClose: () => {
-      setWsConnected(false);
-    },
+    url: `${wsUrl}/ws`,
     onMessage: (message) => {
-      switch (message.type) {
-        case WS_EVENTS.ALERT_CREATED:
-          addAlert(message.payload as Alert);
-          break;
-        case WS_EVENTS.ALERT_UPDATED:
-        case WS_EVENTS.ALERT_RESOLVED:
-          updateAlert(message.payload as Alert);
-          break;
+      if (message.type === 'alert' && message.payload) {
+        const alertData = message.payload as any;
+        // Map backend alert to frontend Alert type
+        const alert: Alert = {
+          id: alertData.id,
+          title: alertData.title,
+          description: alertData.description,
+          message: alertData.description,
+          severity: alertData.severity,
+          status: alertData.status || 'open',
+          resolved: alertData.status === 'resolved',
+          timestamp: alertData.createdAt || new Date().toISOString(),
+          metadata: alertData.metadata,
+        };
+        addAlertFromWebSocket(alert);
       }
     },
   });
 
   useEffect(() => {
     fetchAlerts();
-    markAllAsRead();
-  }, []);
+  }, [fetchAlerts]);
 
-  // Filter alerts by search query
-  const displayedAlerts = filteredAlerts.filter((alert) => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      alert.title.toLowerCase().includes(query) ||
-      alert.message.toLowerCase().includes(query) ||
-      alert.source.toLowerCase().includes(query)
-    );
+  // Auto-scroll to newest alerts
+  useEffect(() => {
+    if (alertsEndRef.current && displayedAlerts.length > 0) {
+      alertsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [displayedAlerts.length]);
+
+  // Filter alerts by search query and filters
+  const displayedAlerts = alerts.filter((alert) => {
+    // Search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      if (
+        !alert.title.toLowerCase().includes(query) &&
+        !(alert.message || '').toLowerCase().includes(query) &&
+        !(alert.source || '').toLowerCase().includes(query)
+      ) {
+        return false;
+      }
+    }
+    
+    // Severity filter
+    if (filters.severity?.length && !filters.severity.includes(alert.severity)) {
+      return false;
+    }
+    
+    // Status filter
+    if (filters.status) {
+      if (filters.status === 'open' && alert.resolved) return false;
+      if (filters.status === 'resolved' && !alert.resolved) return false;
+      if (filters.status === 'acknowledged' && alert.status !== 'acknowledged') return false;
+    }
+    
+    return true;
   });
 
   const handleResolve = async (id: string) => {
@@ -97,12 +116,12 @@ export default function AlertsPage() {
     }
   };
 
-  const handleUnresolve = async (id: string) => {
+  const handleAcknowledge = async (id: string) => {
     try {
-      await unresolveAlert(id);
-      success('Alert Reopened', 'The alert has been reopened.');
+      await acknowledgeAlert(id);
+      success('Alert Acknowledged', 'The alert has been acknowledged.');
     } catch {
-      showError('Error', 'Failed to reopen alert.');
+      showError('Error', 'Failed to acknowledge alert.');
     }
   };
 
@@ -196,31 +215,31 @@ export default function AlertsPage() {
               >
                 <Filter className="h-4 w-4 mr-2" />
                 Filters
-                {(filters.severity?.length || filters.resolved !== undefined) && (
+                {(filters.severity?.length || filters.status) && (
                   <Badge variant="default" className="ml-2">
-                    {(filters.severity?.length || 0) + (filters.resolved !== undefined ? 1 : 0)}
+                    {(filters.severity?.length || 0) + (filters.status ? 1 : 0)}
                   </Badge>
                 )}
               </Button>
 
               {/* Quick filters */}
               <Button
-                variant={filters.resolved === false ? 'secondary' : 'outline'}
+                variant={filters.status === 'open' ? 'secondary' : 'outline'}
                 size="sm"
                 onClick={() =>
                   setFilters({
-                    resolved: filters.resolved === false ? undefined : false,
+                    status: filters.status === 'open' ? undefined : 'open',
                   })
                 }
               >
                 Active Only
               </Button>
 
-              {filters.severity?.length || filters.resolved !== undefined ? (
+              {filters.severity?.length || filters.status ? (
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={clearFilters}
+                  onClick={() => setFilters({})}
                 >
                   <X className="h-4 w-4 mr-1" />
                   Clear
@@ -357,22 +376,34 @@ export default function AlertsPage() {
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground truncate">
-                        {alert.source} • {formatRelativeTime(alert.timestamp)}
+                        {alert.source || 'System'} • {formatRelativeTime(alert.timestamp)}
                       </p>
                     </div>
 
-                    <Button
-                      variant={alert.resolved ? 'outline' : 'default'}
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        alert.resolved
-                          ? handleUnresolve(alert.id)
-                          : handleResolve(alert.id);
-                      }}
-                    >
-                      {alert.resolved ? 'Reopen' : 'Resolve'}
-                    </Button>
+                    <div className="flex gap-2">
+                      {!alert.resolved && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAcknowledge(alert.id);
+                          }}
+                        >
+                          Acknowledge
+                        </Button>
+                      )}
+                      <Button
+                        variant={alert.resolved ? 'outline' : 'default'}
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleResolve(alert.id);
+                        }}
+                      >
+                        {alert.resolved ? 'Reopen' : 'Resolve'}
+                      </Button>
+                    </div>
                   </div>
 
                   {/* Alert details (expanded) */}
@@ -409,6 +440,7 @@ export default function AlertsPage() {
                   )}
                 </div>
               ))}
+              <div ref={alertsEndRef} />
             </div>
           )}
         </CardContent>

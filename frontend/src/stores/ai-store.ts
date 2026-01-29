@@ -1,163 +1,97 @@
 import { create } from 'zustand';
-import { AnomalyPrediction, AIInsight, TimeSeriesData, HealingAction, AlertSeverity } from '@/types';
+import { AnomalyPrediction, AIInsight, AlertSeverity } from '@/types';
 import { api } from '@/lib/api/client';
 
 interface AIState {
-  predictions: AnomalyPrediction[];
+  anomalies: AnomalyPrediction[];
   insights: AIInsight[];
-  healingActions: HealingAction[];
-  anomalyTrends: TimeSeriesData[];
-  severityHeatmap: {
-    metric: string;
-    data: { timestamp: string; severity: AlertSeverity; count: number }[];
-  }[];
-  filters: {
-    metric?: string;
-    severity?: AlertSeverity[];
-    startDate?: string;
-    endDate?: string;
-  };
+  severityTrends: Record<AlertSeverity, number>;
   isLoading: boolean;
   error: string | null;
 }
 
 interface AIActions {
-  fetchPredictions: () => Promise<void>;
+  fetchAnomalies: () => Promise<void>;
   fetchInsights: () => Promise<void>;
-  fetchHealingActions: () => Promise<void>;
-  fetchAnomalyTrends: (metric?: string) => Promise<void>;
-  fetchSeverityHeatmap: () => Promise<void>;
-  setFilters: (filters: Partial<AIState['filters']>) => void;
-  clearFilters: () => void;
+  addAnomalyFromWebSocket: (anomaly: AnomalyPrediction) => void;
   clearError: () => void;
 }
 
 type AIStore = AIState & AIActions;
 
-const initialState: AIState = {
-  predictions: [],
+export const useAIStore = create<AIStore>((set, get) => ({
+  anomalies: [],
   insights: [],
-  healingActions: [],
-  anomalyTrends: [],
-  severityHeatmap: [],
-  filters: {},
+  severityTrends: {
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+    info: 0,
+  },
   isLoading: false,
   error: null,
-};
 
-export const useAIStore = create<AIStore>((set, get) => ({
-  ...initialState,
-
-  fetchPredictions: async () => {
+  fetchAnomalies: async () => {
     set({ isLoading: true, error: null });
-
     try {
-      const { filters } = get();
-      const predictions = await api.get<AnomalyPrediction[]>('/ai/predictions', filters);
-
-      set({ predictions, isLoading: false });
+      // Fetch from AI predictions endpoint or metrics
+      const response = await api.get<AnomalyPrediction[]>('/ai/metrics');
+      const anomalies = Array.isArray(response) ? response : [];
+      
+      // Calculate severity trends
+      const trends: Record<AlertSeverity, number> = {
+        critical: 0,
+        high: 0,
+        medium: 0,
+        low: 0,
+        info: 0,
+      };
+      
+      anomalies.forEach((a) => {
+        if (a.severity && trends[a.severity] !== undefined) {
+          trends[a.severity] = (trends[a.severity] || 0) + 1;
+        }
+      });
+      
+      set({ anomalies, severityTrends: trends, isLoading: false });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to fetch predictions';
-      set({ error: message, isLoading: false });
+      set({
+        error: error instanceof Error ? error.message : 'Failed to fetch anomalies',
+        isLoading: false,
+      });
     }
   },
 
   fetchInsights: async () => {
     set({ isLoading: true, error: null });
-
     try {
-      const insights = await api.get<AIInsight[]>('/ai/insights');
-
+      // Mock or fetch from backend
+      const insights: AIInsight[] = [];
       set({ insights, isLoading: false });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to fetch insights';
-      set({ error: message, isLoading: false });
-    }
-  },
-
-  fetchHealingActions: async () => {
-    set({ isLoading: true, error: null });
-
-    try {
-      const healingActions = await api.get<HealingAction[]>('/executor/actions', {
-        limit: 50,
-        sortBy: 'triggeredAt',
-        sortOrder: 'desc',
-      });
-
-      set({ healingActions, isLoading: false });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to fetch healing actions';
-      set({ error: message, isLoading: false });
-    }
-  },
-
-  fetchAnomalyTrends: async (metric?: string) => {
-    set({ isLoading: true, error: null });
-
-    try {
-      const { filters } = get();
-      const response = await api.get<{
-        trends: { timestamp: string; anomalyCount: number; avgScore: number }[];
-      }>('/ai/trends', {
-        metric: metric || filters.metric,
-        startDate: filters.startDate,
-        endDate: filters.endDate,
-      });
-
       set({
-        anomalyTrends: [
-          {
-            name: 'Anomaly Count',
-            data: response.trends.map((t) => ({
-              timestamp: t.timestamp,
-              value: t.anomalyCount,
-            })),
-            color: '#ef4444',
-          },
-          {
-            name: 'Avg Score',
-            data: response.trends.map((t) => ({
-              timestamp: t.timestamp,
-              value: t.avgScore,
-            })),
-            color: '#eab308',
-          },
-        ],
+        error: error instanceof Error ? error.message : 'Failed to fetch insights',
         isLoading: false,
       });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to fetch anomaly trends';
-      set({ error: message, isLoading: false });
     }
   },
 
-  fetchSeverityHeatmap: async () => {
-    set({ isLoading: true, error: null });
-
-    try {
-      const { filters } = get();
-      const response = await api.get<{
-        heatmap: AIState['severityHeatmap'];
-      }>('/ai/heatmap', {
-        startDate: filters.startDate,
-        endDate: filters.endDate,
-      });
-
-      set({ severityHeatmap: response.heatmap, isLoading: false });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to fetch severity heatmap';
-      set({ error: message, isLoading: false });
-    }
-  },
-
-  setFilters: (newFilters) => {
-    const { filters } = get();
-    set({ filters: { ...filters, ...newFilters } });
-  },
-
-  clearFilters: () => {
-    set({ filters: {} });
+  addAnomalyFromWebSocket: (anomaly) => {
+    set((state) => {
+      const exists = state.anomalies.some((a) => a.id === anomaly.id);
+      if (exists) {
+        return {
+          anomalies: state.anomalies.map((a) => (a.id === anomaly.id ? anomaly : a)),
+        };
+      }
+      const newAnomalies = [anomaly, ...state.anomalies];
+      const trends: Record<AlertSeverity, number> = { ...state.severityTrends };
+      if (anomaly.severity && trends[anomaly.severity] !== undefined) {
+        trends[anomaly.severity] = (trends[anomaly.severity] || 0) + 1;
+      }
+      return { anomalies: newAnomalies, severityTrends: trends };
+    });
   },
 
   clearError: () => set({ error: null }),

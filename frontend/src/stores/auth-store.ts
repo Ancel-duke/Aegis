@@ -71,13 +71,44 @@ export const useAuthStore = create<AuthStore>()(
         set({ isLoading: true, error: null });
         
         try {
-          const response = await api.post<{ user: User }>('/auth/login', {
+          // Backend returns { accessToken, refreshToken } and sets HttpOnly cookies
+          const tokenResponse = await api.post<{ accessToken: string; refreshToken: string }>('/auth/login', {
             email,
             password,
           });
           
+          // Store tokens if not HttpOnly (fallback)
+          if (typeof window !== 'undefined') {
+            try {
+              if (tokenResponse.accessToken) {
+                localStorage.setItem('accessToken', tokenResponse.accessToken);
+              }
+              if (tokenResponse.refreshToken) {
+                localStorage.setItem('refreshToken', tokenResponse.refreshToken);
+              }
+            } catch {
+              // ignore storage errors
+            }
+          }
+          
+          // Fetch user info after login
+          const userResponse = await api.get<{ id: string; email: string; firstName?: string; lastName?: string; avatar?: string; roles: Array<{ name: string }>; createdAt: string; updatedAt: string }>('/users/me');
+          
+          const user: User = {
+            id: userResponse.id,
+            email: userResponse.email,
+            firstName: userResponse.firstName,
+            lastName: userResponse.lastName,
+            username: userResponse.firstName || userResponse.email.split('@')[0],
+            avatar: userResponse.avatar,
+            role: userResponse.roles?.[0]?.name === 'admin' ? 'admin' : userResponse.roles?.[0]?.name === 'auditor' ? 'auditor' : 'user',
+            roles: userResponse.roles,
+            createdAt: userResponse.createdAt || new Date().toISOString(),
+            updatedAt: userResponse.updatedAt || new Date().toISOString(),
+          };
+          
           set({
-            user: response.user,
+            user,
             isAuthenticated: true,
             isLoading: false,
             error: null,
@@ -98,14 +129,45 @@ export const useAuthStore = create<AuthStore>()(
         set({ isLoading: true, error: null });
         
         try {
-          const response = await api.post<{ user: User }>('/auth/signup', {
+          // Backend expects: email, password, firstName, lastName (optional)
+          const tokenResponse = await api.post<{ accessToken: string; refreshToken: string }>('/auth/signup', {
             email,
             password,
-            username,
+            firstName: username,
           });
           
+          // Store tokens if not HttpOnly (fallback)
+          if (typeof window !== 'undefined') {
+            try {
+              if (tokenResponse.accessToken) {
+                localStorage.setItem('accessToken', tokenResponse.accessToken);
+              }
+              if (tokenResponse.refreshToken) {
+                localStorage.setItem('refreshToken', tokenResponse.refreshToken);
+              }
+            } catch {
+              // ignore storage errors
+            }
+          }
+          
+          // Fetch user info after signup
+          const userResponse = await api.get<{ id: string; email: string; firstName?: string; lastName?: string; avatar?: string; roles: Array<{ name: string }>; createdAt: string; updatedAt: string }>('/users/me');
+          
+          const user: User = {
+            id: userResponse.id,
+            email: userResponse.email,
+            firstName: userResponse.firstName,
+            lastName: userResponse.lastName,
+            username: userResponse.firstName || userResponse.email.split('@')[0],
+            avatar: userResponse.avatar,
+            role: userResponse.roles?.[0]?.name === 'admin' ? 'admin' : userResponse.roles?.[0]?.name === 'auditor' ? 'auditor' : 'user',
+            roles: userResponse.roles,
+            createdAt: userResponse.createdAt || new Date().toISOString(),
+            updatedAt: userResponse.updatedAt || new Date().toISOString(),
+          };
+          
           set({
-            user: response.user,
+            user,
             isAuthenticated: true,
             isLoading: false,
             error: null,
@@ -128,6 +190,16 @@ export const useAuthStore = create<AuthStore>()(
         } catch {
           // Continue with logout even if API fails
         } finally {
+          // Clear tokens from storage
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.removeItem('accessToken');
+              localStorage.removeItem('refreshToken');
+              sessionStorage.removeItem('aegis-auth');
+            } catch {
+              // ignore
+            }
+          }
           set({
             user: null,
             isAuthenticated: false,
@@ -141,10 +213,23 @@ export const useAuthStore = create<AuthStore>()(
         set({ isLoading: true });
         
         try {
-          const response = await api.get<{ user: User }>('/auth/me');
+          const userResponse = await api.get<{ id: string; email: string; firstName?: string; lastName?: string; avatar?: string; roles: Array<{ name: string }>; createdAt: string; updatedAt: string }>('/users/me');
+          
+          const user: User = {
+            id: userResponse.id,
+            email: userResponse.email,
+            firstName: userResponse.firstName,
+            lastName: userResponse.lastName,
+            username: userResponse.firstName || userResponse.email.split('@')[0],
+            avatar: userResponse.avatar,
+            role: userResponse.roles?.[0]?.name === 'admin' ? 'admin' : userResponse.roles?.[0]?.name === 'auditor' ? 'auditor' : 'user',
+            roles: userResponse.roles,
+            createdAt: userResponse.createdAt || new Date().toISOString(),
+            updatedAt: userResponse.updatedAt || new Date().toISOString(),
+          };
           
           set({
-            user: response.user,
+            user,
             isAuthenticated: true,
             isLoading: false,
             error: null,

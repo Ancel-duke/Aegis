@@ -22,11 +22,9 @@ import {
 } from 'lucide-react';
 
 const profileSchema = z.object({
-  username: z
-    .string()
-    .min(3, 'Username must be at least 3 characters')
-    .max(30, 'Username must be less than 30 characters'),
-  email: z.string().email('Invalid email address'),
+  firstName: z.string().min(1, 'First name is required').max(50),
+  lastName: z.string().max(50).optional(),
+  avatar: z.string().url().optional().or(z.literal('')),
 });
 
 const passwordSchema = z.object({
@@ -55,8 +53,9 @@ export default function ProfilePage() {
   const profileForm = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
-      username: user?.username || '',
-      email: user?.email || '',
+      firstName: user?.firstName || '',
+      lastName: user?.lastName || '',
+      avatar: user?.avatar || '',
     },
   });
 
@@ -72,7 +71,8 @@ export default function ProfilePage() {
   const onProfileSubmit = async (data: ProfileFormData) => {
     setIsProfileLoading(true);
     try {
-      await api.patch('/users/me', data);
+      if (!user?.id) throw new Error('User not found');
+      await api.patch(`/users/${user.id}`, data);
       await refreshUser();
       success('Profile Updated', 'Your profile has been updated successfully.');
     } catch (err) {
@@ -85,7 +85,8 @@ export default function ProfilePage() {
   const onPasswordSubmit = async (data: PasswordFormData) => {
     setIsPasswordLoading(true);
     try {
-      await api.patch('/users/me/password', {
+      if (!user?.id) throw new Error('User not found');
+      await api.patch(`/users/${user.id}/password`, {
         currentPassword: data.currentPassword,
         newPassword: data.newPassword,
       });
@@ -131,15 +132,22 @@ export default function ProfilePage() {
           <div className="flex items-center gap-6">
             {/* Avatar */}
             <div className="h-20 w-20 rounded-full bg-primary-100 dark:bg-primary-900/20 flex items-center justify-center flex-shrink-0">
-              <span className="text-3xl font-bold text-primary-700 dark:text-primary-300">
-                {user?.username?.charAt(0).toUpperCase() || 'U'}
-              </span>
+              {user?.avatar ? (
+                <img src={user.avatar} alt="Avatar" className="h-20 w-20 rounded-full object-cover" />
+              ) : (
+                <span className="text-3xl font-bold text-primary-700 dark:text-primary-300">
+                  {(user?.firstName || user?.email || 'U').charAt(0).toUpperCase()}
+                </span>
+              )}
             </div>
 
             {/* Info */}
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <h2 className="text-xl font-semibold">{user?.username}</h2>
+                <h2 className="text-xl font-semibold">
+                  {user?.firstName || user?.email?.split('@')[0] || 'User'}
+                  {user?.lastName && ` ${user.lastName}`}
+                </h2>
                 {getRoleBadge()}
               </div>
               <p className="text-muted-foreground flex items-center gap-2">
@@ -170,19 +178,24 @@ export default function ProfilePage() {
           <form onSubmit={profileForm.handleSubmit(onProfileSubmit)} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <Input
-                {...profileForm.register('username')}
-                label="Username"
-                placeholder="Your username"
-                error={profileForm.formState.errors.username?.message}
+                {...profileForm.register('firstName')}
+                label="First Name"
+                placeholder="John"
+                error={profileForm.formState.errors.firstName?.message}
               />
               <Input
-                {...profileForm.register('email')}
-                type="email"
-                label="Email"
-                placeholder="you@example.com"
-                error={profileForm.formState.errors.email?.message}
+                {...profileForm.register('lastName')}
+                label="Last Name"
+                placeholder="Doe"
+                error={profileForm.formState.errors.lastName?.message}
               />
             </div>
+            <Input
+              {...profileForm.register('avatar')}
+              label="Avatar URL (Optional)"
+              placeholder="https://example.com/avatar.jpg"
+              error={profileForm.formState.errors.avatar?.message}
+            />
 
             <Button type="submit" isLoading={isProfileLoading}>
               <Save className="h-4 w-4 mr-2" />

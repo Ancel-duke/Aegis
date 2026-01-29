@@ -8,26 +8,18 @@ const badgeVariants = cva(
     variants: {
       variant: {
         default:
-          'border-transparent bg-primary-100 text-primary-800 dark:bg-primary-900 dark:text-primary-200',
+          'border-transparent bg-primary text-primary-foreground hover:bg-primary/80',
         secondary:
-          'border-transparent bg-secondary text-secondary-foreground',
+          'border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80',
         destructive:
-          'border-transparent bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
+          'border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80',
         outline: 'text-foreground',
         success:
-          'border-transparent bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+          'border-transparent bg-green-500 text-white hover:bg-green-600',
         warning:
-          'border-transparent bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
-        info: 'border-transparent bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
-        // Severity variants
-        critical:
-          'border-transparent bg-red-600 text-white',
-        high:
-          'border-transparent bg-orange-500 text-white',
-        medium:
-          'border-transparent bg-yellow-500 text-white',
-        low:
-          'border-transparent bg-green-500 text-white',
+          'border-transparent bg-yellow-500 text-white hover:bg-yellow-600',
+        info:
+          'border-transparent bg-blue-500 text-white hover:bg-blue-600',
       },
     },
     defaultVariants: {
@@ -38,18 +30,11 @@ const badgeVariants = cva(
 
 export interface BadgeProps
   extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof badgeVariants> {
-  dot?: boolean;
-}
+    VariantProps<typeof badgeVariants> {}
 
-function Badge({ className, variant, dot, children, ...props }: BadgeProps) {
+function Badge({ className, variant, ...props }: BadgeProps) {
   return (
-    <div className={cn(badgeVariants({ variant }), className)} {...props}>
-      {dot && (
-        <span className="mr-1.5 h-2 w-2 rounded-full bg-current" />
-      )}
-      {children}
-    </div>
+    <div className={cn(badgeVariants({ variant }), className)} {...props} />
   );
 }
 

@@ -29,19 +29,23 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useState } from 'react';
 
 const policyTypeOptions: { label: string; value: PolicyType }[] = [
-  { label: 'Access Control', value: 'access' },
-  { label: 'Self-Healing', value: 'self-healing' },
-  { label: 'Rate Limit', value: 'rate-limit' },
-  { label: 'RBAC', value: 'rbac' },
+  { label: 'API Access', value: 'api_access' },
+  { label: 'Self-Healing', value: 'self_healing' },
+  { label: 'Data Access', value: 'data_access' },
+  { label: 'Resource Limit', value: 'resource_limit' },
 ];
 
 const policySchema = z.object({
   name: z.string().min(3, 'Name must be at least 3 characters'),
-  description: z.string().min(10, 'Description must be at least 10 characters'),
-  type: z.enum(['access', 'self-healing', 'rate-limit', 'rbac']),
-  rules: z.string().refine(
+  description: z.string().optional(),
+  type: z.enum(['api_access', 'self_healing', 'data_access', 'resource_limit']),
+  effect: z.enum(['allow', 'deny']),
+  actions: z.array(z.string()).min(1, 'At least one action is required'),
+  resources: z.array(z.string()).min(1, 'At least one resource is required'),
+  conditions: z.string().refine(
     (val) => {
       try {
         JSON.parse(val);
@@ -52,7 +56,8 @@ const policySchema = z.object({
     },
     { message: 'Invalid JSON format' }
   ),
-  enabled: z.boolean(),
+  priority: z.number().min(0).max(1000).optional(),
+  isActive: z.boolean().optional(),
 });
 
 type PolicyFormData = z.infer<typeof policySchema>;
@@ -60,18 +65,17 @@ type PolicyFormData = z.infer<typeof policySchema>;
 export default function PoliciesPage() {
   const {
     policies,
-    selectedPolicy,
+    evaluationLogs,
     isLoading,
-    filters,
     fetchPolicies,
     createPolicy,
     updatePolicy,
     deletePolicy,
-    togglePolicy,
-    setFilters,
-    clearFilters,
-    selectPolicy,
+    fetchEvaluationLogs,
   } = usePoliciesStore();
+  
+  const [selectedPolicy, setSelectedPolicy] = useState<Policy | null>(null);
+  const [filters, setFilters] = useState<{ type?: PolicyType; enabled?: boolean }>({});
 
   const { hasRole } = useAuthStore();
   const { success, error: showError } = useToast();
@@ -87,14 +91,21 @@ export default function PoliciesPage() {
     handleSubmit,
     reset,
     setValue,
+    watch,
     formState: { errors },
   } = useForm<PolicyFormData>({
     resolver: zodResolver(policySchema),
     defaultValues: {
-      enabled: true,
-      rules: '[]',
+      isActive: true,
+      conditions: '{}',
+      priority: 100,
+      actions: [],
+      resources: [],
     },
   });
+  
+  const actionsValue = watch('actions');
+  const resourcesValue = watch('resources');
 
   useEffect(() => {
     fetchPolicies();
@@ -103,12 +114,12 @@ export default function PoliciesPage() {
   // Filter policies by search and type
   const filteredPolicies = policies.filter((policy) => {
     if (filters.type && policy.type !== filters.type) return false;
-    if (filters.enabled !== undefined && policy.enabled !== filters.enabled) return false;
+    if (filters.enabled !== undefined && (policy.isActive !== undefined ? policy.isActive : true) !== filters.enabled) return false;
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
       policy.name.toLowerCase().includes(query) ||
-      policy.description.toLowerCase().includes(query)
+      (policy.description || '').toLowerCase().includes(query)
     );
   });
 
@@ -117,9 +128,13 @@ export default function PoliciesPage() {
     reset({
       name: '',
       description: '',
-      type: 'access',
-      rules: '[]',
-      enabled: true,
+      type: 'api_access',
+      effect: 'allow',
+      actions: [] as string[],
+      resources: [] as string[],
+      conditions: '{}',
+      priority: 100,
+      isActive: true,
     });
     setIsDialogOpen(true);
   };
@@ -128,24 +143,35 @@ export default function PoliciesPage() {
     setEditingPolicy(policy);
     reset({
       name: policy.name,
-      description: policy.description,
+      description: policy.description || '',
       type: policy.type,
-      rules: JSON.stringify(policy.rules, null, 2),
-      enabled: policy.enabled,
+      effect: policy.effect || 'allow',
+      actions: policy.actions || [],
+      resources: policy.resources || [],
+      conditions: JSON.stringify(policy.conditions || {}, null, 2),
+      priority: policy.priority || 100,
+      isActive: policy.isActive !== undefined ? policy.isActive : true,
     });
     setIsDialogOpen(true);
   };
 
   const openDeleteDialog = (policy: Policy) => {
-    selectPolicy(policy);
+    setSelectedPolicy(policy);
     setIsDeleteDialogOpen(true);
   };
 
   const onSubmit = async (data: PolicyFormData) => {
     try {
       const policyData = {
-        ...data,
-        rules: JSON.parse(data.rules),
+        name: data.name,
+        description: data.description,
+        type: data.type,
+        effect: data.effect,
+        actions: data.actions,
+        resources: data.resources,
+        conditions: JSON.parse(data.conditions),
+        priority: data.priority || 100,
+        isActive: data.isActive !== undefined ? data.isActive : true,
       };
 
       if (editingPolicy) {
@@ -177,7 +203,7 @@ export default function PoliciesPage() {
 
   const handleToggle = async (policy: Policy) => {
     try {
-      await togglePolicy(policy.id);
+      await updatePolicy(policy.id, { enabled: !policy.enabled });
       success(
         policy.enabled ? 'Policy Disabled' : 'Policy Enabled',
         `The policy has been ${policy.enabled ? 'disabled' : 'enabled'}.`
@@ -264,7 +290,7 @@ export default function PoliciesPage() {
             </select>
 
             {(filters.type || filters.enabled !== undefined) && (
-              <Button variant="ghost" size="sm" onClick={clearFilters}>
+              <Button variant="ghost" size="sm" onClick={() => setFilters({})}>
                 <X className="h-4 w-4 mr-1" />
                 Clear
               </Button>
@@ -324,12 +350,12 @@ export default function PoliciesPage() {
                       </td>
                       <td className="py-3 px-4">
                         <span className="text-sm text-muted-foreground">
-                          {policy.rules.length} rule{policy.rules.length !== 1 ? 's' : ''}
+                          {policy.actions?.length || 0} action{policy.actions?.length !== 1 ? 's' : ''}
                         </span>
                       </td>
                       <td className="py-3 px-4">
-                        <Badge variant={policy.enabled ? 'success' : 'secondary'}>
-                          {policy.enabled ? 'Enabled' : 'Disabled'}
+                        <Badge variant={policy.isActive !== false ? 'success' : 'secondary'}>
+                          {policy.isActive !== false ? 'Active' : 'Inactive'}
                         </Badge>
                       </td>
                       <td className="py-3 px-4 text-sm text-muted-foreground">
@@ -359,7 +385,7 @@ export default function PoliciesPage() {
                                   className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-accent rounded-sm"
                                   onClick={() => handleToggle(policy)}
                                 >
-                                  {policy.enabled ? (
+                                  {(policy.isActive !== false) ? (
                                     <>
                                       <PowerOff className="h-4 w-4" />
                                       Disable
@@ -439,26 +465,78 @@ export default function PoliciesPage() {
               </div>
 
               <div>
-                <label className="text-sm font-medium mb-2 block">Rules (JSON)</label>
+                <label className="text-sm font-medium mb-2 block">Effect</label>
+                <select
+                  {...register('effect')}
+                  className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="allow">Allow</option>
+                  <option value="deny">Deny</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">Actions (comma-separated)</label>
+                <Input
+                  value={Array.isArray(actionsValue) ? actionsValue.join(', ') : ''}
+                  onChange={(e) => {
+                    const actions = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                    setValue('actions', actions);
+                  }}
+                  placeholder="read, write, delete"
+                />
+                {errors.actions && (
+                  <p className="text-sm text-red-500 mt-1">{errors.actions.message}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">Resources (comma-separated)</label>
+                <Input
+                  value={Array.isArray(resourcesValue) ? resourcesValue.join(', ') : ''}
+                  onChange={(e) => {
+                    const resources = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                    setValue('resources', resources);
+                  }}
+                  placeholder="/api/users, /api/policies"
+                />
+                {errors.resources && (
+                  <p className="text-sm text-red-500 mt-1">{errors.resources.message}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">Conditions (JSON)</label>
                 <textarea
-                  {...register('rules')}
-                  placeholder="[{&quot;condition&quot;: &quot;...&quot;, &quot;action&quot;: &quot;...&quot;}]"
+                  {...register('conditions')}
+                  placeholder='{"role": "admin", "userId": "..."}'
                   className="w-full min-h-[150px] rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
                 />
-                {errors.rules && (
-                  <p className="text-sm text-red-500 mt-1">{errors.rules.message}</p>
+                {errors.conditions && (
+                  <p className="text-sm text-red-500 mt-1">{errors.conditions.message}</p>
                 )}
+              </div>
+
+              <div>
+                <label className="text-sm font-medium mb-2 block">Priority (0-1000)</label>
+                <Input
+                  {...register('priority', { valueAsNumber: true })}
+                  type="number"
+                  min="0"
+                  max="1000"
+                  placeholder="100"
+                />
               </div>
 
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
-                  {...register('enabled')}
-                  id="enabled"
+                  {...register('isActive')}
+                  id="isActive"
                   className="rounded border-gray-300"
                 />
-                <label htmlFor="enabled" className="text-sm">
-                  Enable policy
+                <label htmlFor="isActive" className="text-sm">
+                  Active
                 </label>
               </div>
 
