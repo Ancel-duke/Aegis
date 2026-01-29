@@ -45,14 +45,18 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Sidebar */}
-      <Sidebar />
+      {/* Sidebar - collapses to hamburger on mobile */}
+      <Sidebar
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 lg:hidden"
           onClick={() => setSidebarOpen(false)}
+          aria-hidden
         />
       )}
 
@@ -66,6 +70,7 @@ export default function DashboardLayout({
         <Header
           onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
           showMenu={sidebarOpen}
+          ariaLabelMenu={sidebarOpen ? 'Close menu' : 'Open menu'}
         />
         
         <main id="main-content" className="p-4 lg:p-6" role="main">

@@ -26,6 +26,14 @@ import {
 
 const severityOptions: AlertSeverity[] = ['critical', 'high', 'medium', 'low', 'info'];
 
+const severityToBadgeVariant: Record<AlertSeverity, 'destructive' | 'warning' | 'info' | 'default'> = {
+  critical: 'destructive',
+  high: 'destructive',
+  medium: 'warning',
+  low: 'info',
+  info: 'default',
+};
+
 export default function AlertsPage() {
   const {
     alerts,
@@ -354,7 +362,7 @@ export default function AlertsPage() {
                     </Button>
 
                     <Badge
-                      variant={alert.severity as 'critical' | 'high' | 'medium' | 'low'}
+                      variant={severityToBadgeVariant[alert.severity]}
                       className="capitalize"
                     >
                       {alert.severity}

@@ -10,7 +10,7 @@ import { AreaChart } from '@/components/charts/area-chart';
 import { SkeletonChart, SkeletonCard } from '@/components/ui/skeleton';
 import { useAIStore } from '@/stores/ai-store';
 import { formatRelativeTime, formatPercentage, cn } from '@/lib/utils';
-import { AnomalyPrediction } from '@/types';
+import { AnomalyPrediction, TimeSeriesData } from '@/types';
 import { useWebSocket } from '@/lib/websocket';
 import {
   Brain,

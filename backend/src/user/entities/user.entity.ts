@@ -40,6 +40,14 @@ export class User {
   @Exclude()
   refreshToken: string | null;
 
+  @Column({ type: 'varchar', nullable: true })
+  @Exclude()
+  passwordResetToken: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  @Exclude()
+  passwordResetTokenExpiresAt: Date | null;
+
   @Column({ type: 'jsonb', nullable: true, default: {} })
   preferences: Record<string, unknown>;
 

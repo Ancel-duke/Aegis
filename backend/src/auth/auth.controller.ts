@@ -13,6 +13,8 @@ import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { Public } from './decorators/public.decorator';
 import { JwtRefreshAuthGuard } from './guards/jwt-refresh-auth.guard';
 import { GetUser } from './decorators/get-user.decorator';
@@ -69,5 +71,23 @@ export class AuthController {
       userAgent: req.get('user-agent'),
     });
     return { message: 'Logged out successfully' };
+  }
+
+  @Post('forgot-password')
+  @Public()
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ ttl: 3600, limit: 5 })
+  @HttpCode(HttpStatus.OK)
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return await this.authService.forgotPassword(dto.email);
+  }
+
+  @Post('reset-password')
+  @Public()
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ ttl: 900, limit: 10 })
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    return await this.authService.resetPassword(dto.token, dto.newPassword);
   }
 }

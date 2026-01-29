@@ -12,6 +12,7 @@ import { SkeletonChart, SkeletonCard } from '@/components/ui/skeleton';
 import { useMetricsStore } from '@/stores/metrics-store';
 import { useWebSocket, WS_EVENTS } from '@/lib/websocket';
 import { formatRelativeTime, formatBytes, formatPercentage, cn } from '@/lib/utils';
+import { TimeSeriesData } from '@/types';
 import {
   Activity,
   Cpu,
@@ -34,17 +35,58 @@ interface ServiceStatus {
   lastCheck: string;
 }
 
+interface PodMetrics {
+  running?: number;
+  pending?: number;
+  failed?: number;
+  total?: number;
+}
+
+interface MetricValue {
+  current?: number;
+  max?: number;
+  min?: number;
+  average?: number;
+}
+
+interface NetworkMetrics {
+  bytesIn?: number;
+  bytesOut?: number;
+}
+
+interface CurrentMetricsShape {
+  cpu?: MetricValue;
+  memory?: MetricValue;
+  disk?: MetricValue;
+  network?: NetworkMetrics;
+  pods?: PodMetrics;
+}
+
+// Chart data shape the health page expects (store exposes historical as array; use empty when not object shape)
+const emptyChartData: { cpu: TimeSeriesData[]; memory: TimeSeriesData[]; network: TimeSeriesData[]; requests: TimeSeriesData[]; errors: TimeSeriesData[] } = {
+  cpu: [],
+  memory: [],
+  network: [],
+  requests: [],
+  errors: [],
+};
+
 export default function SystemHealthPage() {
   const {
-    currentMetrics,
-    historicalMetrics,
-    timeRange,
+    current: currentMetrics,
+    historical,
     isLoading,
-    lastUpdated,
-    fetchCurrentMetrics,
-    fetchHistoricalMetrics,
-    setTimeRange,
+    lastFetched: lastUpdated,
+    fetchCurrent: fetchCurrentMetrics,
+    fetchHistorical: fetchHistoricalMetrics,
   } = useMetricsStore();
+
+  const [timeRange, setTimeRange] = useState('24h');
+  const m = currentMetrics as CurrentMetricsShape | null;
+  const historicalMetrics =
+    typeof historical === 'object' && historical !== null && !Array.isArray(historical)
+      ? (historical as typeof emptyChartData)
+      : emptyChartData;
 
   const [services, setServices] = useState<ServiceStatus[]>([
     { name: 'Backend API', status: 'healthy', latency: 45, lastCheck: new Date().toISOString() },
@@ -78,11 +120,12 @@ export default function SystemHealthPage() {
   }, []);
 
   // Pod status data for donut chart
-  const podStatusData = currentMetrics?.pods
+  const pods = m?.pods;
+  const podStatusData = pods
     ? [
-        { name: 'Running', value: currentMetrics.pods.running, color: '#22c55e' },
-        { name: 'Pending', value: currentMetrics.pods.pending, color: '#eab308' },
-        { name: 'Failed', value: currentMetrics.pods.failed, color: '#ef4444' },
+        { name: 'Running', value: pods.running ?? 0, color: '#22c55e' },
+        { name: 'Pending', value: pods.pending ?? 0, color: '#eab308' },
+        { name: 'Failed', value: pods.failed ?? 0, color: '#ef4444' },
       ]
     : [];
 
@@ -173,7 +216,7 @@ export default function SystemHealthPage() {
 
       {/* Resource stats */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {isLoading && !currentMetrics ? (
+        {isLoading && !m ? (
           <>
             <SkeletonCard />
             <SkeletonCard />
@@ -184,39 +227,39 @@ export default function SystemHealthPage() {
           <>
             <StatCard
               title="CPU Usage"
-              value={`${currentMetrics?.cpu.current.toFixed(1) || 0}%`}
-              description={`Max: ${currentMetrics?.cpu.max.toFixed(1) || 0}%`}
+              value={`${m?.cpu?.current?.toFixed(1) ?? 0}%`}
+              description={`Max: ${m?.cpu?.max?.toFixed(1) ?? 0}%`}
               icon={<Cpu className="h-6 w-6 text-blue-500" />}
               variant={
-                (currentMetrics?.cpu.current || 0) > 80
+                (m?.cpu?.current ?? 0) > 80
                   ? 'error'
-                  : (currentMetrics?.cpu.current || 0) > 60
+                  : (m?.cpu?.current ?? 0) > 60
                   ? 'warning'
                   : 'success'
               }
             />
             <StatCard
               title="Memory Usage"
-              value={`${currentMetrics?.memory.current.toFixed(1) || 0}%`}
-              description={`Max: ${currentMetrics?.memory.max.toFixed(1) || 0}%`}
+              value={`${m?.memory?.current?.toFixed(1) ?? 0}%`}
+              description={`Max: ${m?.memory?.max?.toFixed(1) ?? 0}%`}
               icon={<MemoryStick className="h-6 w-6 text-purple-500" />}
               variant={
-                (currentMetrics?.memory.current || 0) > 85
+                (m?.memory?.current ?? 0) > 85
                   ? 'error'
-                  : (currentMetrics?.memory.current || 0) > 70
+                  : (m?.memory?.current ?? 0) > 70
                   ? 'warning'
                   : 'success'
               }
             />
             <StatCard
               title="Disk Usage"
-              value={`${currentMetrics?.disk.current.toFixed(1) || 0}%`}
-              description={`Max: ${currentMetrics?.disk.max.toFixed(1) || 0}%`}
+              value={`${m?.disk?.current?.toFixed(1) ?? 0}%`}
+              description={`Max: ${m?.disk?.max?.toFixed(1) ?? 0}%`}
               icon={<HardDrive className="h-6 w-6 text-orange-500" />}
               variant={
-                (currentMetrics?.disk.current || 0) > 90
+                (m?.disk?.current ?? 0) > 90
                   ? 'error'
-                  : (currentMetrics?.disk.current || 0) > 75
+                  : (m?.disk?.current ?? 0) > 75
                   ? 'warning'
                   : 'success'
               }
@@ -224,10 +267,10 @@ export default function SystemHealthPage() {
             <StatCard
               title="Network I/O"
               value={formatBytes(
-                (currentMetrics?.network.bytesIn || 0) +
-                  (currentMetrics?.network.bytesOut || 0)
+                (m?.network?.bytesIn || 0) +
+                  (m?.network?.bytesOut || 0)
               )}
-              description={`In: ${formatBytes(currentMetrics?.network.bytesIn || 0)}`}
+              description={`In: ${formatBytes((m?.network?.bytesIn ?? 0))}`}
               icon={<Network className="h-6 w-6 text-green-500" />}
               variant="default"
             />
@@ -336,7 +379,7 @@ export default function SystemHealthPage() {
                   data={podStatusData}
                   height={200}
                   centerLabel={{
-                    value: currentMetrics?.pods.total || 0,
+                    value: pods?.total ?? 0,
                     label: 'Total Pods',
                   }}
                 />
@@ -347,7 +390,7 @@ export default function SystemHealthPage() {
                       Running
                     </span>
                     <span className="font-medium">
-                      {currentMetrics?.pods.running || 0}
+                      {pods?.running ?? 0}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
@@ -356,7 +399,7 @@ export default function SystemHealthPage() {
                       Pending
                     </span>
                     <span className="font-medium">
-                      {currentMetrics?.pods.pending || 0}
+                      {pods?.pending ?? 0}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
@@ -365,7 +408,7 @@ export default function SystemHealthPage() {
                       Failed
                     </span>
                     <span className="font-medium">
-                      {currentMetrics?.pods.failed || 0}
+                      {pods?.failed ?? 0}
                     </span>
                   </div>
                 </div>

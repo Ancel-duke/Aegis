@@ -23,6 +23,8 @@ import { AuditEvent } from './audit/entities/audit-event.entity';
 import { Policy } from './policy/entities/policy.entity';
 import { PolicyAuditLog } from './policy/entities/policy-audit-log.entity';
 import { Role } from './policy/entities/role.entity';
+import { Log } from './logs/entities/log.entity';
+import { LogsModule } from './logs/logs.module';
 
 @Module({
   imports: [
@@ -52,6 +54,7 @@ import { Role } from './policy/entities/role.entity';
           Policy,
           PolicyAuditLog,
           Role,
+          Log,
         ],
         synchronize: configService.get<string>('NODE_ENV') === 'development',
         logging: configService.get<string>('NODE_ENV') === 'development',
@@ -84,6 +87,7 @@ import { Role } from './policy/entities/role.entity';
     ExecutorModule,
     AiModule,
     AlertsModule,
+    LogsModule,
   ],
   providers: [
     {

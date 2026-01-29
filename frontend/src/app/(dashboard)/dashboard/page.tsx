@@ -10,7 +10,7 @@ import { AreaChart } from '@/components/charts/area-chart';
 import { DonutChart } from '@/components/charts/donut-chart';
 import { BarChart } from '@/components/charts/bar-chart';
 import { SkeletonCard, SkeletonChart } from '@/components/ui/skeleton';
-import { TimeSeriesData } from '@/types';
+import { TimeSeriesData, AlertSeverity } from '@/types';
 import { useMetricsStore } from '@/stores/metrics-store';
 import { useAlertsStore } from '@/stores/alerts-store';
 import { useAIStore } from '@/stores/ai-store';
@@ -28,6 +28,14 @@ import {
   Zap,
 } from 'lucide-react';
 import Link from 'next/link';
+
+const severityToBadgeVariant: Record<AlertSeverity, 'destructive' | 'warning' | 'info' | 'default'> = {
+  critical: 'destructive',
+  high: 'destructive',
+  medium: 'warning',
+  low: 'info',
+  info: 'default',
+};
 
 export default function DashboardPage() {
   const {
@@ -161,9 +169,9 @@ export default function DashboardPage() {
       </div>
 
       {/* Charts row */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-2 min-w-0">
         {/* Policy Evaluation Counts */}
-        <Card>
+        <Card className="min-w-0 overflow-hidden">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Shield className="h-5 w-5" />
@@ -194,7 +202,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
         {/* System Resources Chart */}
-        <Card>
+        <Card className="min-w-0 overflow-hidden">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5" />
@@ -221,7 +229,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* Request Latency Chart */}
-        <Card>
+        <Card className="min-w-0 overflow-hidden">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Server className="h-5 w-5" />
@@ -249,9 +257,9 @@ export default function DashboardPage() {
       </div>
 
       {/* Bottom row */}
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 lg:grid-cols-3 min-w-0">
         {/* Severity Distribution */}
-        <Card>
+        <Card className="min-w-0 overflow-hidden">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5" />
@@ -315,7 +323,7 @@ export default function DashboardPage() {
                     className="flex items-center gap-3 p-3 rounded-lg bg-muted/50"
                   >
                     <Badge
-                      variant={alert.severity as 'critical' | 'high' | 'medium' | 'low'}
+                      variant={severityToBadgeVariant[alert.severity]}
                       className="capitalize"
                     >
                       {alert.severity}

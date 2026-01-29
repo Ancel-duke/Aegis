@@ -93,10 +93,11 @@ export default function LoginPage() {
             </div>
 
             <div className="flex items-center justify-between text-sm">
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className="flex items-center gap-2 cursor-pointer min-h-[44px] items-center">
                 <input
                   type="checkbox"
-                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[18px] min-w-[18px]"
+                  aria-label="Remember me"
                 />
                 <span className="text-muted-foreground">Remember me</span>
               </label>

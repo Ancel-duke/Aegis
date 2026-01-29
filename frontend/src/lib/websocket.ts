@@ -189,8 +189,8 @@ export function useWebSocket({
       // Remove all listeners to prevent errors during disconnect
       socket.current.removeAllListeners();
       
-      // Only disconnect if socket is actually connected or connecting
-      if (socket.current.connected || socket.current.connecting) {
+      // Only disconnect if socket is actually connected (Socket type has no .connecting in typings)
+      if (socket.current.connected) {
         socket.current.disconnect();
       }
       

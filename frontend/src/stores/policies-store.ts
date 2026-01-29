@@ -2,16 +2,18 @@ import { create } from 'zustand';
 import { Policy } from '@/types';
 import { api } from '@/lib/api/client';
 
+type EvaluationLogEntry = {
+  id: string;
+  userId: string;
+  action: string;
+  resource: string;
+  result: 'allow' | 'deny';
+  timestamp: string;
+};
+
 interface PoliciesState {
   policies: Policy[];
-  evaluationLogs: Array<{
-    id: string;
-    userId: string;
-    action: string;
-    resource: string;
-    result: 'allow' | 'deny';
-    timestamp: string;
-  }>;
+  evaluationLogs: EvaluationLogEntry[];
   isLoading: boolean;
   error: string | null;
 }
@@ -89,8 +91,8 @@ export const usePoliciesStore = create<PoliciesStore>((set) => ({
   fetchEvaluationLogs: async (filters) => {
     set({ isLoading: true, error: null });
     try {
-      const response = await api.get('/policy/audit/logs', filters);
-      set({ evaluationLogs: response, isLoading: false });
+      const response = await api.get<EvaluationLogEntry[]>('/policy/audit/logs', filters);
+      set({ evaluationLogs: response ?? [], isLoading: false });
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : 'Failed to fetch evaluation logs',

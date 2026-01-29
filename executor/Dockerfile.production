@@ -13,8 +13,8 @@ RUN apk add --no-cache python3 make g++
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --include=dev
+# Install dependencies (npm install works without package-lock.json; use npm ci if lock file is committed)
+RUN if [ -f package-lock.json ]; then npm ci --include=dev; else npm install; fi
 
 # Stage 2: Builder
 FROM node:20-alpine AS builder

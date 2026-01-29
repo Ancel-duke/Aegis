@@ -83,7 +83,9 @@ export class KubernetesService implements OnModuleInit {
       );
 
       // Update replica count
-      deployment.body.spec.replicas = replicas;
+      if (deployment.body.spec) {
+        deployment.body.spec.replicas = replicas;
+      }
 
       // Apply update
       const response = await this.k8sAppsApi.replaceNamespacedDeployment(
@@ -138,11 +140,14 @@ export class KubernetesService implements OnModuleInit {
       );
 
       // Trigger rollback by adding annotation
-      if (!deployment.body.metadata.annotations) {
-        deployment.body.metadata.annotations = {};
+      const body = deployment.body;
+      if (!body.metadata) {
+        body.metadata = {};
       }
-
-      deployment.body.metadata.annotations['kubectl.kubernetes.io/restartedAt'] =
+      if (!body.metadata.annotations) {
+        body.metadata.annotations = {};
+      }
+      body.metadata.annotations['kubectl.kubernetes.io/restartedAt'] =
         new Date().toISOString();
 
       const response = await this.k8sAppsApi.replaceNamespacedDeployment(
