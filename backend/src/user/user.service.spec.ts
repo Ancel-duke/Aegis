@@ -193,7 +193,7 @@ describe('UserService', () => {
       };
 
       // Mock bcrypt.compare to return true for current password
-      const bcrypt = require('bcrypt');
+      const bcrypt = require('bcryptjs');
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(true);
       jest.spyOn(bcrypt, 'hash').mockResolvedValue('newHashedPassword');
 
@@ -213,7 +213,7 @@ describe('UserService', () => {
 
     it('should throw BadRequestException when current password is wrong', async () => {
       mockRepository.findOne.mockResolvedValue({ ...mockUser, password: 'hashed' });
-      const bcrypt = require('bcrypt');
+      const bcrypt = require('bcryptjs');
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(false);
 
       await expect(

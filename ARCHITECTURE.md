@@ -1,754 +1,248 @@
-# Aegis Platform Architecture
+# Aegis Architecture
 
-Complete microservices architecture for intelligent, policy-driven self-healing infrastructure.
+---
 
-## System Overview
+## 1. What Aegis Is (Problem & Purpose)
 
-```
-┌────────────────────────────────────────────────────────────────────┐
-│                         Aegis Platform                              │
-│                                                                      │
-│  ┌──────────────┐      ┌──────────────┐      ┌──────────────┐     │
-│  │   Backend    │      │  AI Engine   │      │   Executor   │     │
-│  │   (NestJS)   │◄────►│   (Python)   │◄────►│   (NestJS)   │     │
-│  │              │      │              │      │              │     │
-│  │ • Auth       │      │ • Anomaly    │      │ • K8s Ops    │     │
-│  │ • Users      │      │   Detection  │      │ • Audit Log  │     │
-│  │ • Policy     │      │ • Failure    │      │ • Safe Exec  │     │
-│  │   Engine     │      │   Prediction │      │              │     │
-│  └──────┬───────┘      └──────┬───────┘      └──────┬───────┘     │
-│         │                     │                     │              │
-│         │ metrics/logs/traces │                     │              │
-│         └─────────────────────┴─────────────────────┘              │
-│                               │                                     │
-│                               ▼                                     │
-│  ┌─────────────────────────────────────────────────────────────┐  │
-│  │              Observability Layer                             │  │
-│  │  ┌────────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │  │
-│  │  │Prometheus  │  │   Loki   │  │  Tempo   │  │ Grafana  │ │  │
-│  │  │  Metrics   │  │   Logs   │  │  Traces  │  │Dashboard │ │  │
-│  │  └────────────┘  └──────────┘  └──────────┘  └──────────┘ │  │
-│  └─────────────────────────────────────────────────────────────┘  │
-│                               │                                     │
-│  ┌────────────────────────────▼──────────────────────────────┐    │
-│  │                    Data Layer                              │    │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────┐  │    │
-│  │  │PostgreSQL│  │PostgreSQL│  │PostgreSQL│  │  Redis  │  │    │
-│  │  │ Backend  │  │AI Engine │  │ Executor │  │  Cache  │  │    │
-│  │  │   DB     │  │    DB    │  │   DB     │  │         │  │    │
-│  │  └──────────┘  └──────────┘  └──────────┘  └─────────┘  │    │
-│  └─────────────────────────────────────────────────────────────┘  │
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │            External Integrations                              │  │
-│  │  ┌──────────────────────┐  ┌──────────────────────────────┐ │  │
-│  │  │   Kubernetes API     │  │  OpenTelemetry Collector    │ │  │
-│  │  │   (Cluster Ops)      │  │  (Telemetry Aggregation)     │ │  │
-│  │  └──────────────────────┘  └──────────────────────────────┘ │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────┘
-```
+Aegis is a self-healing infrastructure platform that combines policy-driven access control, ML-based anomaly and failure detection, and safe Kubernetes remediation. It addresses the problem of reacting to infrastructure failures and anomalies in a governed, auditable way: instead of ad-hoc scripts or manual intervention, operators define policies that determine which automated actions are allowed, and an AI engine recommends actions that an executor can perform only after policy evaluation and signature validation.
 
-## Services
+The real-world problem is twofold: (1) **infrastructure security**—ensuring that automated or user-initiated actions (e.g., scaling, restarts, rollbacks) are allowed only when they match organizational policy (roles, time windows, resource scope); and (2) **self-healing**—detecting anomalies and failure patterns from metrics and logs and executing remediation (restart pod, scale deployment, rollback) when policy permits. Target users are platform teams, SREs, and security teams operating Kubernetes (or similar) who need a single control plane for "who can do what" and "what the system is allowed to do automatically," as well as startups that want a reference architecture for policy + ML + safe execution.
 
-### 1. Backend (NestJS) - Port 3000
+---
 
-**Purpose**: Core API, authentication, and policy evaluation
+## 2. High-Level System Overview
 
-**Key Features**:
-- JWT authentication with refresh tokens
-- User management with RBAC
-- Policy Engine for access control and self-healing decisions
-- Rate limiting per user/endpoint
-- Request logging and error handling
-- Redis caching
+The system is a polyglot microservices stack: a NestJS backend (API, auth, policy engine, in-process executor stub), a Python/FastAPI AI engine (anomaly and failure detection), a standalone NestJS executor (real Kubernetes operations), and a Next.js frontend. Data flows as follows:
 
-**Modules**:
-- `auth/` - JWT authentication
-- `user/` - User management
-- `policy/` - Policy evaluation engine
-- `core/` - Health checks
-- `common/` - Shared utilities
-
-**Database**: PostgreSQL (users, policies, roles, audit logs)
-
-**API Endpoints**:
-```
-POST   /api/v1/auth/signup
-POST   /api/v1/auth/login
-POST   /api/v1/policy/evaluate
-GET    /api/v1/policy/audit/logs
-GET    /api/v1/health
-```
-
-### 2. AI Engine (Python/FastAPI) - Port 8000
-
-**Purpose**: ML-powered anomaly and failure detection
-
-**Key Features**:
-- Anomaly detection with Isolation Forest
-- Failure pattern detection with Random Forest
-- Feature engineering from metrics and logs
-- Severity scoring and action recommendations
-- Historical prediction storage
-- Model performance tracking
-
-**Models**:
-- `AnomalyDetector` - Detects unusual metric patterns
-- `FailureDetector` - Identifies failure patterns
-- `DataPreprocessor` - Feature engineering pipeline
-
-**Database**: PostgreSQL (predictions, model metrics, training data)
-
-**API Endpoints**:
-```
-POST   /api/v1/detect-anomaly
-POST   /api/v1/detect-failure
-GET    /api/v1/metrics/predictions
-GET    /health
-```
-
-### 3. Executor (NestJS) - Port 4000
-
-**Purpose**: Safe Kubernetes action execution with audit logging
-
-**Key Features**:
-- Kubernetes operations (restart, scale, rollback)
-- Action signature validation (HMAC-SHA256)
-- Namespace restrictions
-- Immutable audit logging to PostgreSQL and Loki
-- Rate limiting on critical actions
-- Policy integration
-
-**Actions**:
-- Restart pods
-- Scale deployments
-- Rollback deployments
-
-**Database**: PostgreSQL (action audit logs)
-
-**API Endpoints**:
-```
-POST   /executor/execute
-POST   /executor/generate-signature
-GET    /audit/logs
-GET    /health
-```
-
-## Integration Flow
-
-### Self-Healing Workflow
+- **Monitored infrastructure** (metrics from Prometheus, logs from Loki, or direct API calls) is consumed by the **AI engine**, which runs anomaly (Isolation Forest) and failure (Random Forest) models and returns severity and recommended actions.
+- The **backend** is the central API: it handles authentication (JWT + refresh), user and role management, and **policy evaluation**. Callers (including the AI engine or automation) ask "can I do action X on resource Y?" and receive ALLOW/DENY plus audit. The backend also exposes an **in-process executor** that validates HMAC and namespace, writes audit logs, and **simulates** actions (no real K8s); production K8s execution is intended to go through the **standalone executor** service.
+- The **standalone executor** (separate NestJS app) performs real Kubernetes operations (restart pod, scale deployment, rollback). It validates HMAC signatures and namespace allowlists, writes immutable audit logs, and calls the Kubernetes API.
+- The **frontend** (Next.js 15) gives operators and admins a UI for dashboard metrics, alerts, AI insights, policy CRUD, logs viewer, profile, and settings; it uses Zustand for state and WebSockets for real-time alerts.
 
 ```
-1. Prometheus/Loki
-   │ Collect metrics and logs
-   ▼
-2. AI Engine
-   │ Analyze for anomalies/failures
-   │ Recommend action: "scale_up"
-   │ Severity: "high"
-   ▼
-3. Policy Engine (Backend)
-   │ Evaluate: Can AI Engine scale in production?
-   │ Check: Role, time, metadata conditions
-   │ Decision: ALLOW/DENY
-   ▼
-4. Executor
-   │ IF allowed:
-   │   - Validate signature
-   │   - Check namespace whitelist
-   │   - Execute K8s action
-   │   - Log to audit trail
-   │ ELSE:
-   │   - Log denial
-   │   - Alert administrator
-   ▼
-5. Kubernetes API
-   │ Apply changes to cluster
-   ▼
-6. Audit Trail
-   │ Immutable logs in PostgreSQL + Loki
+                    ┌─────────────────────────────────────────────────────────────┐
+                    │                     Aegis System                              │
+                    │                                                               │
+  Metrics/Logs      │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
+  (Prometheus/Loki)─┼─►│  AI Engine  │───►│   Backend   │◄──►│  Executor   │     │
+  or API calls      │  │  (Python)   │    │  (NestJS)   │    │ (NestJS)    │     │
+                    │  │  Port 8000  │    │  Port 3000  │    │ Port 4000   │     │
+                    │  │             │    │             │    │             │     │
+                    │  │ • Anomaly   │    │ • Auth/JWT  │    │ • K8s API   │     │
+                    │  │ • Failure   │    │ • Policy    │    │ • HMAC      │     │
+                    │  │ • Inference │    │ • Executor  │    │ • Namespace │     │
+                    │  └──────┬──────┘    │   (stub)    │    │   allowlist │     │
+                    │         │           └──────┬──────┘    └──────┬──────┘     │
+                    │         │                  │                  │            │
+                    │         │                  │  ┌────────────────┴───────┐   │
+                    │         │                  │  │  Frontend (Next.js 15) │   │
+                    │         │                  └─►│  Port 3001             │   │
+                    │         │                     │  Dashboard, Alerts,   │   │
+                    │         │                     │  Policies, Logs, etc. │   │
+                    │         │                     └──────────────────────┘   │
+                    │         │                                                  │
+                    │  ┌──────▼──────┐  ┌─────────────┐  ┌─────────────────┐   │
+                    │  │ PostgreSQL │  │    Redis    │  │ Loki / Prometheus│   │
+                    │  │ (Backend,  │  │ rate-limit  │  │ (observability)  │   │
+                    │  │  AI, Exec) │  │ cache       │  │                  │   │
+                    │  └────────────┘  └─────────────┘  └─────────────────┘   │
+                    └─────────────────────────────────────────────────────────────┘
 ```
 
-### API Access Control Workflow
-
-```
-1. User Request
-   │ POST /api/v1/users/456
-   │ Token: user-jwt-token
-   ▼
-2. Backend - JWT Validation
-   │ Verify token
-   │ Extract user ID and roles
-   ▼
-3. Policy Engine
-   │ Evaluate: Can this user delete user 456?
-   │ Check: Role = "user", Action = "delete"
-   │ Match: "Deny User Delete Operations"
-   │ Decision: DENY
-   ▼
-4. Response
-   │ 403 Forbidden
-   │ Log to audit trail
-```
-
-## Data Flow
-
-### Metrics Collection
-
-```
-Prometheus → AI Engine → Detection Results → Policy Engine → Executor → K8s
-    │                                             │
-    └─────────────────────────────────────────────┴─→ Audit Logs
-```
-
-### Log Analysis
-
-```
-Loki → AI Engine (analyze errors) → Failure Detection
-  │                                       │
-  │                                       ▼
-  │                              Recommended Actions
-  │                                       │
-  │                                       ▼
-  └───────────────────────────────→ Audit Logs
-```
-
-## Security Architecture
-
-### Authentication & Authorization
-
-```
-┌─────────────┐
-│    User     │
-└──────┬──────┘
-       │ 1. Login (email/password)
-       ▼
-┌─────────────┐
-│  Backend    │
-│  Auth API   │──► Hash password (bcrypt)
-└──────┬──────┘    Verify in PostgreSQL
-       │
-       │ 2. Issue JWT tokens
-       ▼
-┌─────────────┐
-│ Access      │ ← Short-lived (15 min)
-│ Token       │
-└─────────────┘
-
-┌─────────────┐
-│ Refresh     │ ← Long-lived (7 days)
-│ Token       │
-└─────────────┘
-       │
-       │ 3. Attach to requests
-       ▼
-┌─────────────┐
-│  Protected  │──► Validate JWT
-│  Endpoint   │    Extract user context
-└──────┬──────┘    Check with Policy Engine
-       │
-       │ 4. Policy evaluation
-       ▼
-┌─────────────┐
-│   Policy    │──► Match conditions
-│   Engine    │    Apply priority rules
-└──────┬──────┘    DENY overrides ALLOW
-       │
-       │ 5. Action approval/denial
-       ▼
-```
-
-### Service-to-Service Security
-
-```
-AI Engine ──HMAC Signature──► Executor
-    │                            │
-    │  Payload + Secret          │ Verify signature
-    │  = HMAC-SHA256             │ Check namespace
-    │                            │ Validate request
-    │                            ▼
-    └──────────────────► Kubernetes API
-                         (Service Account)
-```
-
-### Kubernetes RBAC
-
-```
-Executor Service Account
-  │
-  ├─► Role (default namespace)
-  │   ├─ pods: get, list, delete
-  │   └─ deployments: get, list, patch, update
-  │
-  ├─► Role (production namespace)
-  │   ├─ pods: get, list, delete
-  │   └─ deployments: get, list, patch, update
-  │
-  └─► RoleBindings (namespace-specific)
-```
-
-## Database Schema
-
-### Backend Database
-
-**Tables**:
-- `users` - User accounts
-- `roles` - RBAC roles (admin, user, auditor)
-- `user_roles` - Many-to-many relationship
-- `policies` - Policy definitions
-- `policy_audit_logs` - Policy evaluation logs
-
-### AI Engine Database
-
-**Tables**:
-- `prediction_history` - ML predictions
-- `model_metrics` - Model performance
-- `training_data` - Historical training data
-
-### Executor Database
-
-**Tables**:
-- `action_audit_logs` - Immutable action execution logs
-
-## Port Allocation
-
-| Service | Port | Protocol | Purpose |
-|---------|------|----------|---------|
-| Backend | 3000 | HTTP | Main API, Auth, Policy Engine |
-| Executor | 4000 | HTTP | Action execution |
-| AI Engine | 8000 | HTTP | ML inference |
-| PostgreSQL (Backend) | 5432 | TCP | User/Policy data |
-| PostgreSQL (AI) | 5433 | TCP | ML data |
-| PostgreSQL (Executor) | 5434 | TCP | Audit logs |
-| Redis | 6379 | TCP | Caching |
-
-## Configuration
-
-### Environment Variables
-
-**Backend** (`.env`):
-```env
-JWT_SECRET=change_this_in_production
-DB_HOST=localhost
-REDIS_HOST=localhost
-```
-
-**AI Engine** (`.env`):
-```env
-PROMETHEUS_URL=http://localhost:9090
-LOKI_URL=http://localhost:3100
-POLICY_ENGINE_URL=http://localhost:3000/api/v1/policy/evaluate
-ANOMALY_THRESHOLD=0.85
-```
-
-**Executor** (`.env`):
-```env
-KUBECONFIG_PATH=/path/to/kubeconfig
-ALLOWED_NAMESPACES=default,production
-REQUIRE_ACTION_SIGNATURE=true
-POLICY_ENGINE_URL=http://localhost:3000/api/v1/policy/evaluate
-```
-
-## Deployment
-
-### Docker Compose (Development)
-
-```bash
-# Start Backend
-cd backend
-docker-compose up -d
-
-# Start AI Engine
-cd ai-engine
-docker-compose up -d
-
-# Start Executor
-cd executor
-docker-compose up -d
-```
-
-### Kubernetes (Production)
-
-```bash
-# Deploy Backend
-kubectl apply -f backend/k8s/
-
-# Deploy AI Engine
-kubectl apply -f ai-engine/k8s/
-
-# Deploy Executor (with RBAC)
-kubectl apply -f executor/k8s/service-account.yaml
-kubectl apply -f executor/k8s/deployment.yaml
-```
-
-## Example Scenarios
-
-### Scenario 1: High CPU Usage
-
-```
-1. Prometheus detects CPU > 85%
-2. AI Engine receives metrics
-   └─► detect-anomaly API
-   └─► Result: "scale_up", severity "high"
-3. AI Engine queries Policy Engine
-   └─► "Can I scale_up in production?"
-   └─► Policy: "Allow Auto-Scale" → ALLOW
-4. AI Engine calls Executor
-   └─► Execute: scale_deployment to 10 replicas
-   └─► Signature validation
-   └─► Namespace check: production ✓
-5. Executor calls Kubernetes API
-   └─► Scale deployment
-6. Audit logs created
-   └─► PostgreSQL (queryable)
-   └─► Loki (centralized)
-```
-
-### Scenario 2: Pod Crash Loop
-
-```
-1. Loki detects repeated errors
-2. AI Engine analyzes logs
-   └─► detect-failure API
-   └─► Result: "restart_pod", failure_type "service_down"
-3. Policy check
-   └─► "Can I restart_pod during business hours?"
-   └─► Policy evaluation with time conditions
-4. If allowed → Execute restart
-5. Audit trail with full context
-```
-
-### Scenario 3: Denied Action
-
-```
-1. AI Engine recommends "delete_pod"
-2. Policy Engine evaluation
-   └─► Match: "Deny Destructive Actions During Peak Hours"
-   └─► Time: 2:00 PM (peak hours)
-   └─► Decision: DENY
-3. Action blocked before execution
-4. Log denial reason
-5. Alert administrator
-```
-
-## API Interaction Patterns
-
-### Pattern 1: AI-Driven Self-Healing
-
-```typescript
-// AI Engine (Python)
-async function selfHealing() {
-  // 1. Detect issue
-  const anomaly = await detectAnomaly(metrics);
-  
-  // 2. Check policy
-  const policyDecision = await fetch(POLICY_ENGINE_URL, {
-    method: 'POST',
-    body: JSON.stringify({
-      action: anomaly.recommended_action,
-      resource: `cluster:${namespace}`,
-      type: 'self_healing',
-      context: {
-        userId: 'ai-engine',
-        role: 'service',
-        metadata: { severity: anomaly.severity }
-      }
-    })
-  });
-  
-  // 3. Execute if allowed
-  if (policyDecision.allowed) {
-    await executeAction(anomaly.recommended_action, params);
-  }
-}
-```
-
-### Pattern 2: User-Initiated Action
-
-```typescript
-// Backend API
-async function userAction(user: User, action: string) {
-  // 1. Authenticate user (JWT)
-  // 2. Check policy
-  const decision = await policyEngine.evaluate({
-    action,
-    resource: `/api/resource`,
-    type: 'api_access',
-    context: {
-      userId: user.id,
-      role: user.roles[0].name,
-    }
-  });
-  
-  // 3. Execute or deny
-  if (decision.allowed) {
-    return await performAction();
-  } else {
-    throw new ForbiddenException(decision.reason);
-  }
-}
-```
-
-## Monitoring & Observability
-
-### Metrics to Track
-
-**Backend**:
-- Request rate by endpoint
-- Authentication success/failure rate
-- Policy evaluation duration
-- Policy denial rate
-
-**AI Engine**:
-- Inference latency
-- Anomaly detection rate
-- Failure detection accuracy
-- Model confidence scores
-
-**Executor**:
-- Action execution rate
-- Success/failure ratio
-- Execution duration
-- Actions by namespace/type
-
-### Health Checks
-
-```bash
-# Backend
-curl http://localhost:3000/api/v1/health
-
-# AI Engine
-curl http://localhost:8000/health
-
-# Executor
-curl http://localhost:4000/health
-```
-
-### Audit Queries
-
-```sql
--- Policy evaluations in last hour
-SELECT * FROM policy_audit_logs 
-WHERE "createdAt" > NOW() - INTERVAL '1 hour';
-
--- Failed executor actions
-SELECT * FROM action_audit_logs 
-WHERE status = 'failed';
-
--- AI predictions
-SELECT * FROM prediction_history 
-WHERE severity_score > 0.8;
-```
-
-## Security Considerations
-
-### Defense in Depth
-
-1. **Network Layer**: Service mesh, network policies
-2. **Authentication**: JWT tokens, API keys
-3. **Authorization**: Policy Engine with RBAC
-4. **Action Validation**: HMAC signatures
-5. **Audit Logging**: Immutable logs
-6. **Rate Limiting**: Per-user, per-endpoint, per-action
-7. **Namespace Isolation**: Restricted K8s access
-
-### Secrets Management
-
-```yaml
-# Kubernetes Secrets
-apiVersion: v1
-kind: Secret
-metadata:
-  name: aegis-secrets
-type: Opaque
-data:
-  jwt-secret: <base64>
-  db-password: <base64>
-  api-key: <base64>
-```
-
-## Disaster Recovery
-
-### Backup Strategy
-
-1. **Database Backups**: Daily automated backups
-2. **Policy Definitions**: Version controlled in Git
-3. **ML Models**: Stored in object storage
-4. **Audit Logs**: Replicated to long-term storage
-
-### Rollback Procedures
-
-1. **Code Rollback**: Git revert + redeploy
-2. **Database Rollback**: Restore from backup
-3. **Kubernetes Rollback**: `kubectl rollout undo`
-4. **Emergency Stop**: Disable self-healing policies
-
-## Performance Benchmarks
-
-| Operation | Latency | Throughput |
-|-----------|---------|------------|
-| Backend Auth | < 100ms | 1000 req/s |
-| Policy Evaluation | < 50ms | 500 req/s |
-| AI Anomaly Detection | < 100ms | 100 req/s |
-| AI Failure Detection | < 200ms | 50 req/s |
-| Executor Action | < 2s | 10 actions/s |
-
-## Scaling Strategy
-
-### Horizontal Scaling
-
-- **Backend**: Scale to N replicas (stateless)
-- **AI Engine**: Scale based on queue depth
-- **Executor**: 2-3 replicas (leader election recommended)
-
-### Resource Limits
-
-```yaml
-# Backend
-resources:
-  requests: { memory: "512Mi", cpu: "500m" }
-  limits: { memory: "1Gi", cpu: "1000m" }
-
-# AI Engine
-resources:
-  requests: { memory: "1Gi", cpu: "1000m" }
-  limits: { memory: "2Gi", cpu: "2000m" }
-
-# Executor
-resources:
-  requests: { memory: "256Mi", cpu: "250m" }
-  limits: { memory: "512Mi", cpu: "500m" }
-```
-
-## Testing Strategy
-
-### Unit Tests
-
-```bash
-# Backend
-cd backend && npm run test
-
-# AI Engine
-cd ai-engine && pytest tests/
-
-# Executor
-cd executor && npm run test
-```
-
-### Integration Tests
-
-1. Test policy evaluation flow
-2. Test AI → Policy → Executor chain
-3. Test action signatures
-4. Test namespace restrictions
-5. Test rate limiting
-
-### Load Tests
-
-- Simulate high metric volume
-- Test concurrent action execution
-- Verify rate limit enforcement
-- Check database performance
-
-## Production Checklist
-
-### Backend
-- [ ] Change JWT secrets
-- [ ] Configure PostgreSQL SSL
-- [ ] Set Redis password
-- [ ] Review default policies
-- [ ] Configure CORS properly
-
-### AI Engine
-- [ ] Set API key
-- [ ] Configure Prometheus/Loki URLs
-- [ ] Tune anomaly threshold
-- [ ] Load pre-trained models
-- [ ] Set up model retraining pipeline
-
-### Executor
-- [ ] Apply Kubernetes RBAC
-- [ ] Set allowed namespaces
-- [ ] Enable action signatures
-- [ ] Configure Loki for audit logs
-- [ ] Test all actions in staging
-
-### Infrastructure
-- [ ] Set up monitoring (Prometheus, Grafana)
-- [ ] Configure alerting rules
-- [ ] Enable log aggregation (Loki)
-- [ ] Set up backup automation
-- [ ] Test disaster recovery procedures
-
-## Troubleshooting
-
-### Backend Issues
-
-```bash
-# Check logs
-docker logs aegis-backend
-
-# Test database connection
-psql -h localhost -U aegis_user -d aegis_db
-
-# Verify Redis
-redis-cli ping
-```
-
-### AI Engine Issues
-
-```bash
-# Check model loading
-curl http://localhost:8000/health
-
-# Check predictions
-curl http://localhost:8000/api/v1/metrics/stats
-```
-
-### Executor Issues
-
-```bash
-# Check Kubernetes connection
-kubectl auth can-i delete pods --as=system:serviceaccount:default:aegis-executor
-
-# View audit logs
-curl http://localhost:4000/audit/logs?limit=10
-```
-
-## Documentation
-
-- **Backend**: [backend/README.md](backend/README.md)
-- **Policy Engine**: [backend/POLICY_ENGINE.md](backend/POLICY_ENGINE.md)
-- **AI Engine**: [ai-engine/README.md](ai-engine/README.md), [AI_ENGINE.md](AI_ENGINE.md)
-- **Executor**: [executor/README.md](executor/README.md), [EXECUTOR.md](EXECUTOR.md)
-- **Architecture**: This file
-
-## Quick Start
-
-```bash
-# 1. Start Backend with Policy Engine
-cd backend
-docker-compose up -d
-
-# 2. Start AI Engine
-cd ../ai-engine
-docker-compose up -d
-
-# 3. Start Executor
-cd ../executor
-docker-compose up -d
-
-# 4. Verify all services
-curl http://localhost:3000/api/v1/health  # Backend
-curl http://localhost:8000/health          # AI Engine
-curl http://localhost:4000/health          # Executor
-```
-
-## License
-
-MIT
-
-## Support
-
-For architecture questions or integration issues, consult the individual service READMEs or open an issue.
+---
+
+## 3. Core Architectural Principles
+
+- **Zero-trust internal communication**: Services do not assume caller identity; the backend validates JWT for user requests; the executor validates HMAC and (optionally) policy decision context for action requests. There is no mTLS between services today; identity is carried in tokens/signatures.
+- **Least privilege execution**: The executor is the only component that talks to the Kubernetes API; it is scoped by namespace allowlist and (in K8s deployment) by RBAC. Policies explicitly allow or deny actions by role, resource, and context.
+- **Immutable audit logs**: Policy evaluations and executor actions are written to PostgreSQL (and optionally Loki) with no in-place updates; denials and failures are logged with reason.
+- **Failure-aware design**: The backend health check includes DB, Redis, and AI engine reachability; the executor logs failed actions and supports a self-healing report (count of failed actions by type). The AI engine degrades gracefully when models are untrained (returns default/low severity).
+- **Deterministic builds**: All services use multi-stage Dockerfiles, pinned base images, and (where present) lockfiles (package-lock.json, requirements.txt) for reproducible builds.
+- **Observability-first mindset**: Prometheus metrics, structured logs (Loki-friendly), and (where configured) Tempo tracing and Grafana dashboards are part of the design; health endpoints and metrics endpoints are implemented per service.
+
+---
+
+## 4. Services & Responsibilities
+
+### 4.1 Backend API (NestJS)
+
+**Responsibilities**: Single entrypoint for the control plane: authentication and user management, policy evaluation (API access and self-healing decisions), rate limiting, health checks, alerts CRUD, metrics API, AI proxy (forward predict to AI engine and store results), in-process executor (HMAC + namespace + audit, simulated execution), logs API (query logs from DB), settings, and audit events (auth, policy evaluations).
+
+**Auth model**: JWT access tokens (short-lived, e.g. 15m) and refresh tokens (e.g. 7d); refresh rotation on use; passwords hashed with bcryptjs; auth events (signup, login success/failure, logout) logged to audit. Forgot-password and reset-password flows exist (token in DB, mock mail service).
+
+**Policy engine**: JSON-based policies with conditions (role, resource, action, optional metadata/time); evaluation returns ALLOW/DENY and reason; results are cached in Redis (TTL configurable) and every evaluation is written to `policy_audit_logs`. Used for both API access control and self-healing decisions (e.g. "can service X run action Y?").
+
+**Rate limiting**: Redis-backed, per-IP for unauthenticated and per-user for authenticated; decorator-driven limits per endpoint; on Redis failure the guard allows the request and logs (fail-open).
+
+**Health checks**: `/api/v1/health` runs Terminus checks for PostgreSQL, Redis, and AI engine HTTP ping; `/api/v1/health/ping` returns lightweight ok/uptime.
+
+**COMPLETE**: Auth (signup, login, refresh, logout, forgot/reset password), user CRUD and profile, policy CRUD and evaluate, policy audit logs API, rate limiting, health (DB + Redis + AI engine), alerts CRUD and WebSocket gateway, metrics API (current, historical, policy-evaluation-counts), AI proxy and prediction storage, in-process executor (HMAC, namespace allowlist, audit, simulated action), logs API (GET /api/v1/logs with query params from DB), settings API, audit events (auth, policy). Unit/integration tests for major modules.
+
+**PARTIALLY IMPLEMENTED**: Policy conditions could be extended (e.g. richer time/context); executor in backend is simulation only—real K8s is in standalone executor; metrics "historical" may be stub or partial depending on data source.
+
+**NOT IMPLEMENTED**: mTLS between services; distributed tracing propagation; Loki as direct log source for GET /api/v1/logs (current implementation uses DB-stored logs); rate limit metrics export; OIDC/SSO.
+
+---
+
+### 4.2 AI Engine (Python / FastAPI)
+
+**Purpose**: Anomaly detection on metrics and failure-pattern detection for self-healing recommendations.
+
+**Model**: **Anomaly**: Isolation Forest (sklearn) plus Elliptic Envelope for Gaussian-style anomalies; **Failure**: Random Forest classifier for failure types (e.g. service_down, high_latency, memory_leak, connection_timeout). Preprocessing and feature engineering (e.g. stats, trends) in a dedicated module.
+
+**Inference flow**: Client sends metrics (and optionally log-derived features) via POST; preprocessing builds a feature vector; anomaly model returns is_anomaly, score, severity, recommended action; failure model returns failure_type, severity, recommended actions, confidence. Results can be stored and exposed via metrics.
+
+**Training vs inference**: Models have `train(X)` / `train(X, y)` and `predict(X)`. Training is not exposed over HTTP in the default setup; inference is. If not trained, the code returns safe defaults (e.g. no anomaly, low severity) so the system does not block.
+
+**COMPLETE**: Anomaly detector (Isolation Forest + Elliptic Envelope), failure detector (Random Forest), preprocessing pipeline, FastAPI routers (health, inference, metrics), Prometheus metrics, config and schemas, unit tests.
+
+**PARTIALLY IMPLEMENTED**: Training pipeline and persistence of model state (e.g. joblib) may be local or not wired to a scheduler; integration with Prometheus/Loki for automatic pull of metrics/logs is outlined in docs but may not be fully wired in code.
+
+**NOT IMPLEMENTED**: Online learning; A/B tests of models; GPU acceleration; Python 3.13 is not guaranteed (e.g. some dependencies may have compatibility issues—explicitly a known limitation).
+
+**Python 3.13 compatibility**: The project targets Python 3.11. Dependency/installation issues with Python 3.13 are a known limitation; CI and docs use 3.11. Using 3.11 is recommended.
+
+---
+
+### 4.3 Executor Service
+
+**Why isolated**: The executor is a separate service so that Kubernetes credentials and API access are confined to one process, with a strict allowlist of namespaces and actions. The backend's in-process executor handles policy/audit and signature validation but does not call the cluster; the standalone executor does.
+
+**Kubernetes permissions**: Executor runs with a K8s service account; RBAC is namespace-scoped (e.g. Role + RoleBinding per namespace) with permissions such as pods: get, list, delete and deployments: get, list, patch, update for restart, scale, and rollback.
+
+**Allowed actions**: Restart pod (delete pod in namespace), scale deployment (patch replicas), rollback deployment (patch to previous revision). Action types are enumerated; anything else is rejected.
+
+**HMAC signature validation**: Request payload (actionType, actionParams, requestedBy) is serialized to a canonical JSON form; HMAC-SHA256 with a shared secret is computed and compared to the provided signature (timing-safe compare not explicitly shown; standard string compare in code). Invalid or missing signature results in 403 and audit log. **Note**: The standalone executor uses `JWT_SECRET` from config as the HMAC secret (same env var name as JWT; in production a dedicated `EXECUTOR_HMAC_SECRET` would be preferable).
+
+**Namespace allowlisting**: Only namespaces listed in ALLOWED_NAMESPACES (comma-separated) are accepted; otherwise the request is rejected and logged.
+
+**COMPLETE** (standalone executor in repo): Execute action with HMAC and namespace checks, audit log to PostgreSQL (status, duration, result/error), KubernetesService for restart/scale/rollback, health endpoint, signature generation helper for clients, unit tests.
+
+**PARTIALLY IMPLEMENTED**: Loki sink for audit logs may be documented but not necessarily implemented in code; rate limiting on execute endpoint may be simple or absent; HMAC secret is JWT_SECRET (not a dedicated secret).
+
+**NOT IMPLEMENTED**: mTLS; approval workflows (e.g. two-phase); dry-run mode exposed as API; automatic retries with backoff at executor level.
+
+**Backend in-process executor**: Uses EXECUTOR_HMAC_SECRET (or equivalent), namespace allowlist, immutable audit log, and **simulated** execution only (no K8s API). Used for validation and audit; real execution is via standalone executor.
+
+---
+
+### 4.4 Frontend (Next.js 15)
+
+**Target users**: Operators and admins viewing metrics and alerts, managing policies, inspecting logs and health, and managing profile/settings.
+
+**Main screens**: Dashboard (metrics, charts, policy evaluation counts, alerts summary), Alerts (list, filters, resolve/acknowledge), AI Insights (anomaly list, severity trends), Policies (CRUD, JSON editor, evaluation logs), Logs (filter by level, service, time; pagination), Health (system health, pods, metrics), Profile (user info, password change), Settings, Auth (login, signup, forgot password, reset password).
+
+**State management**: Zustand stores for auth, alerts, metrics, AI insights, policies, logs, settings; no global Redux. Persistence (e.g. auth) via localStorage/cookies as applicable.
+
+**WebSocket**: Connection to backend for real-time alerts (and optionally metrics/events); reconnection and auth (e.g. token in query) implemented.
+
+**COMPLETE**: All listed pages and flows, Zustand stores, API client (axios, JWT attachment), WebSocket hook, responsive layout and accessibility improvements (keyboard, aria, tap targets), error boundaries, tests for critical paths and stores.
+
+**PARTIALLY IMPLEMENTED**: Some charts may expect specific metric shapes (e.g. health page) and use guards/empty data when backend shape differs; WebSocket might not cover every event type; frontend Docker image has **health check disabled** (in-container check was unreliable; container shows "Up" without healthy/unhealthy).
+
+**NOT IMPLEMENTED**: SSO/OIDC login; offline support; full e2e coverage for every flow; accessibility audit and certification.
+
+---
+
+## 5. Data Architecture
+
+- **PostgreSQL**: Primary durable store. **Backend** DB: users, roles, user_roles, policies, policy_audit_logs, audit_events, alerts, prediction_results, action_audit_logs (in-process executor), logs (log entries for GET /api/v1/logs), settings. **AI engine** DB (if used): prediction history, model metrics, training data. **Executor** DB (standalone): action_audit_logs. Separate DBs per service in infra layouts to isolate blast radius and allow different backup/retention.
+- **Redis**: Sessions/refresh token state, rate limit counters, and policy decision cache (TTL). Single instance in typical compose; no cluster.
+- **Loki**: Log aggregation; queries (e.g. LogQL) for debugging and dashboards. Not all services may push logs to Loki in all setups; backend logs are structured for Loki consumption.
+- **Prometheus**: Metrics (request counts, latency, custom business metrics). Each service exposes /metrics or equivalent; Prometheus scrapes. Used for SLOs and alerting.
+- **Polyglot justification**: PostgreSQL for consistency and audit; Redis for speed and rate limiting; Loki and Prometheus for observability. This is a deliberate split by concern, not a single-store design.
+
+---
+
+## 6. Security Architecture
+
+- **Authentication & authorization**: Users authenticate via email/password; backend issues JWT access + refresh. Protected routes use JWT guard; role (admin, user, auditor) is used in policy evaluation. API access to policy/evaluate, executor, etc. is authenticated where required; executor standalone accepts HMAC-signed requests (signature is the auth for service-to-service).
+- **Policy enforcement**: All sensitive actions (and optionally self-healing decisions) go through the policy engine; DENY wins; results are audited.
+- **Service-to-service**: AI engine → backend (HTTP, optional API key); Backend/AI engine → Executor: HMAC on request payload with shared secret. No service mesh or mTLS in current design.
+- **HMAC**: Executor (standalone and backend stub) validate HMAC-SHA256; standalone executor uses JWT_SECRET as the HMAC secret (config); backend stub uses EXECUTOR_HMAC_SECRET. Timestamp or nonce can be used to limit replay (executor standalone may use timestamp window if implemented).
+- **Kubernetes RBAC**: Executor runs as a service account with minimal namespace-scoped Roles (pods, deployments) as described above.
+- **Network policies**: K8s manifests define network policies to restrict pod-to-pod traffic; exact rules are in k8s/network-policies.yaml.
+- **Missing**: mTLS between Aegis services; OIDC; secret management (e.g. Vault) beyond env vars; formal threat model document.
+
+---
+
+## 7. Observability & Monitoring
+
+- **Metrics**: Prometheus; each service exposes metrics (HTTP, custom). Backend uses interceptors/terminus; AI engine and executor expose Prometheus client metrics. Alerts and dashboards can be built on these.
+- **Logs**: Structured JSON logs; Loki-compatible. Backend logging interceptor and app logs; AI engine and executor log similarly. Loki configs and example LogQL exist in observability/.
+- **Traces**: Tempo and OpenTelemetry collector are in observability stack (observability/otel, observability/instrumentation); instrumentation (e.g. backend, AI engine) may be partial or example-only. Not every path is fully traced.
+- **Dashboards**: Grafana provisioning and example dashboards (e.g. aegis-overview.json) exist in observability/grafana.
+- **Alerting**: Alertmanager config (observability/alertmanager, observability/prometheus/alerts.yml) exists; routing to Slack/PagerDuty is configurable. End-to-end alert-to-action (e.g. alert → policy → executor) is a design goal but may not be fully automated in code.
+- **Implemented**: Prometheus scrape, Loki ingest, Grafana datasources and dashboards, Alertmanager, health endpoints. **Planned/partial**: Full distributed tracing, SLO-based alerting, runbooks.
+
+---
+
+## 8. Containerization & Deployment
+
+- **Docker**: Multi-stage Dockerfiles per service (backend, ai-engine, executor, frontend): build stage (deps + build) and runner stage (non-root user, minimal copy). Frontend uses Next.js `output: 'standalone'`. Images are tagged (e.g. aegis/backend:v1.0.0).
+- **Non-root**: Runner stage creates a dedicated user (e.g. nextjs, node) and runs the process as that user.
+- **Docker Compose**: Used for local and "prod-like" single-host. **backend/docker-compose.prod.yml**: postgres, redis, api, frontend (optional host port overrides REDIS_HOST_PORT, POSTGRES_HOST_PORT). AI engine and executor have their own compose files. No single "run everything" compose; start order is documented.
+- **Kubernetes**: k8s/ contains base manifests and overlays (staging, production): deployments (backend, ai-engine, executor), services, configmaps, secrets, ingress, network-policies, postgres-statefulset, redis-statefulset, cronjobs. Kustomize for env-specific config. Executor has service account and RBAC in executor/k8s/.
+- **CI/CD**: GitHub Actions (ci-cd.yaml): lint and test per service (backend, ai-engine, executor); build and push images on tag/main; optional deploy step. Frontend may be in same or separate workflow; matrix does not include frontend by default.
+- **Rollback**: Kubernetes rollback is manual (kubectl rollout undo) or via GitOps revert; no automated rollback logic in application code.
+
+---
+
+## 9. Failure Modes & Self-Healing Flow
+
+- **Flow**: Detection (metrics/logs) → AI engine (anomaly/failure, severity, recommended action) → Policy evaluation (backend: allow/deny) → Execution (executor: HMAC + namespace + K8s action) → Audit (PostgreSQL, optionally Loki). Human or automation can trigger policy evaluate and executor execute; full closed loop (Prometheus → AI → Backend → Executor → K8s) depends on wiring and scheduling.
+- **Recoverable by Aegis**: Pod restarts, deployment scale-up/down, deployment rollback, within namespace allowlist and policy allow. Depends on executor being deployed and K8s credentials valid.
+- **Not recovered by Aegis**: Failures outside policy (e.g. denied action), cluster-level outages, network partitions, dependency failures (DB, Redis, AI engine down) that prevent policy or executor from running. No automatic remediation of the Aegis control plane itself.
+- **Safety**: Namespace allowlist and RBAC limit scope; HMAC prevents unauthorized executor calls; policy DENY and audit logs prevent unauthorized actions; rate limiting and fail-open behavior (e.g. rate limit on Redis error) are documented. No circuit breaker or bulk-heading in application code beyond standard K8s resource limits.
+
+---
+
+## 10. Current Project Status (Honest)
+
+| Component | Complete | Partial | Missing | Notes |
+|-----------|----------|---------|---------|-------|
+| Backend auth | ✓ | | | JWT, refresh, forgot/reset password, bcryptjs, audit |
+| Backend policy engine | ✓ | | | Evaluate, cache, audit, CRUD |
+| Backend rate limiting | ✓ | | | Redis-backed; fail-open on Redis error |
+| Backend health | ✓ | | | DB, Redis, AI engine ping |
+| Backend logs API | ✓ | | | GET /api/v1/logs from DB; no Loki query API |
+| Backend executor (in-process) | ✓ | | | HMAC, namespace, audit, **simulated** action only |
+| Backend AI proxy | ✓ | | | Forward predict, store results, retries |
+| Backend alerts & WebSocket | ✓ | | | CRUD, gateway, real-time |
+| Backend metrics API | ✓ | | | current, historical, policy-evaluation-counts |
+| Standalone executor | ✓ | | | Real K8s restart/scale/rollback, HMAC (JWT_SECRET), namespace, audit |
+| AI engine anomaly | ✓ | | | Isolation Forest + Elliptic Envelope |
+| AI engine failure | ✓ | | | Random Forest, failure types |
+| AI engine training | | ✓ | | train() exists; not exposed/scheduled as HTTP job |
+| AI engine Python 3.13 | | | ✓ | Use 3.11; dependency issues with 3.13 |
+| Frontend (all pages) | ✓ | | | Dashboard, alerts, AI, policies, logs, health, profile, settings, auth |
+| Frontend WebSocket | ✓ | | | Alerts; reconnection, auth |
+| Frontend Docker health check | | ✓ | | Disabled in compose; in-container check was unreliable |
+| Loki integration | | ✓ | | Config and examples; backend logs format; no GET /logs from Loki in backend |
+| Tracing (Tempo/OTel) | | ✓ | | Collector and config; instrumentation partial |
+| mTLS | | | ✓ | Not implemented |
+| Single compose "full stack" | | ✓ | | backend+frontend in one compose; AI + executor separate |
+| K8s production deploy | ✓ | | | Manifests and overlays present; secrets and ingress are operator responsibility |
+| Executor HMAC secret | | ✓ | | Standalone uses JWT_SECRET; dedicated EXECUTOR_HMAC_SECRET not used |
+
+---
+
+## 11. Known Limitations & Tradeoffs
+
+- **Backend executor is simulated**: Real Kubernetes execution is only in the standalone executor service. The backend executor is for validation, audit, and integration testing without a cluster; production must call the standalone executor (or equivalent) for real actions.
+- **No mTLS**: Service-to-service is HTTP with HMAC/tokens; in a high-security environment, mTLS (or mesh) would be recommended.
+- **Python 3.13**: AI engine is not guaranteed to run on 3.13; 3.11 is the supported version.
+- **Training not automated**: AI models are trained in code but not exposed as a scheduled or on-demand HTTP job; inference-only is the default.
+- **Historical metrics**: Backend "historical" metrics may be stub or derived from a single source; rich time-series may require Prometheus or another store.
+- **Executor HMAC secret**: Standalone executor uses JWT_SECRET for HMAC; in production a dedicated secret (EXECUTOR_HMAC_SECRET) would improve separation of concerns.
+- **Frontend health check**: Disabled in Docker/Compose because node:alpine in-container checks (wget/Node HTTP) were unreliable; container reports "Up" only.
+- **Scope**: Aegis is a control plane for policy and execution; it does not replace Prometheus/Loki or Kubernetes—it consumes and acts on them. Some features (e.g. full closed-loop from alert to action) are design goals with partial implementation.
+
+---
+
+## 12. What This Project Demonstrates
+
+- **System design**: Decomposition of policy, detection, and execution into separate services; clear data flow and responsibility boundaries; use of existing building blocks (PostgreSQL, Redis, Prometheus, Loki, K8s).
+- **Security thinking**: JWT and refresh rotation, HMAC for executor, namespace allowlisting, RBAC, audit logging, and explicit discussion of what is missing (mTLS, OIDC, dedicated HMAC secret).
+- **Production mindset**: Health checks, structured logging, metrics, non-root containers, deterministic builds, and documentation of failure modes and rollback. Honest documentation of disabled or partial features (e.g. frontend health check, executor secret).
+- **Tradeoff awareness**: Honest status table and limitations section; distinction between "implemented," "partial," and "missing"; no marking of incomplete work as done. Suitable for review by senior backend engineers, security engineers, and staff/principal engineers evaluating depth and judgment.

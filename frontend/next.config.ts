@@ -4,6 +4,9 @@ const nextConfig: NextConfig = {
   // Enable strict mode for better development experience
   reactStrictMode: true,
 
+  // Standalone output for Docker (produces .next/standalone used by Dockerfile)
+  output: 'standalone',
+
   // Environment variables
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000',

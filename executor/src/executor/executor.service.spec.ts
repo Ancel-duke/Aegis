@@ -29,13 +29,13 @@ describe('ExecutorService', () => {
   };
 
   const mockConfigService = {
-    get: jest.fn((key: string, defaultValue?: any) => {
-      const config = {
+    get: jest.fn((key: string, defaultValue?: unknown) => {
+      const config: Record<string, unknown> = {
         ALLOWED_NAMESPACES: 'default,production',
         REQUIRE_ACTION_SIGNATURE: false,
         JWT_SECRET: 'test-secret',
       };
-      return config[key] || defaultValue;
+      return config[key] ?? defaultValue;
     }),
   };
 

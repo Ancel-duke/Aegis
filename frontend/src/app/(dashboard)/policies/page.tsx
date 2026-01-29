@@ -29,7 +29,6 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useState } from 'react';
 import { JsonEditor } from '@/components/ui/json-editor';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -251,12 +250,13 @@ export default function PoliciesPage() {
           <div className="flex flex-col lg:flex-row gap-4">
             {/* Search */}
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
               <Input
                 placeholder="Search policies..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
+                className="pl-10 min-h-[44px]"
+                aria-label="Search policies"
               />
             </div>
 
@@ -320,22 +320,69 @@ export default function PoliciesPage() {
               <p className="text-sm">Create a policy to get started</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Name</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Type</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Rules</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Status</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Updated</th>
-                    {isAdmin && (
-                      <th className="text-right py-3 px-4 font-medium text-muted-foreground">Actions</th>
+            <>
+              {/* Card layout for small screens (≤640px) */}
+              <div className="space-y-3 sm:hidden" role="list">
+                {filteredPolicies.map((policy) => (
+                  <div
+                    key={policy.id}
+                    className="rounded-lg border p-4 space-y-2 bg-card"
+                    role="listitem"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-medium">{policy.name}</p>
+                      <Badge variant={policy.isActive !== false ? 'success' : 'secondary'}>
+                        {policy.isActive !== false ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </div>
+                    {policy.description && (
+                      <p className="text-sm text-muted-foreground line-clamp-2">{policy.description}</p>
                     )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredPolicies.map((policy) => (
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <Badge variant="outline" className="capitalize">
+                        {policy.type.replace('-', ' ')}
+                      </Badge>
+                      <span className="text-muted-foreground">
+                        {policy.actions?.length || 0} action{policy.actions?.length !== 1 ? 's' : ''}
+                      </span>
+                      <span className="text-muted-foreground">{formatRelativeTime(policy.updatedAt)}</span>
+                    </div>
+                    {isAdmin && (
+                      <div className="flex gap-2 pt-2 border-t">
+                        <Button variant="outline" size="sm" onClick={() => openEditDialog(policy)} className="min-h-[44px] flex-1">
+                          <Edit className="h-4 w-4 mr-1" />
+                          Edit
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handleToggle(policy)} className="min-h-[44px] flex-1">
+                          {policy.isActive !== false ? <PowerOff className="h-4 w-4 mr-1" /> : <Power className="h-4 w-4 mr-1" />}
+                          {policy.isActive !== false ? 'Disable' : 'Enable'}
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => openDeleteDialog(policy)} className="min-h-[44px] text-red-600">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Table layout for sm and up */}
+              <div className="overflow-x-auto scrollbar-thin hidden sm:block" role="region" aria-label="Policies table">
+                <table className="w-full min-w-[640px]">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Name</th>
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Type</th>
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Rules</th>
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Status</th>
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Updated</th>
+                      {isAdmin && (
+                        <th className="text-right py-3 px-4 font-medium text-muted-foreground">Actions</th>
+                      )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredPolicies.map((policy) => (
                     <tr key={policy.id} className="border-b last:border-0 hover:bg-muted/50">
                       <td className="py-3 px-4">
                         <div>
@@ -414,9 +461,10 @@ export default function PoliciesPage() {
                       )}
                     </tr>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

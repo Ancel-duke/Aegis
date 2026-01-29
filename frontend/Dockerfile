@@ -7,9 +7,9 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 
-# Install dependencies only when needed
+# Install dependencies (need devDependencies for build; --legacy-peer-deps for react-json-view vs React 19)
 COPY package*.json ./
-RUN npm ci --only=production
+RUN if [ -f package-lock.json ]; then npm ci --legacy-peer-deps; else npm install --legacy-peer-deps; fi
 
 # Stage 2: Builder
 FROM node:20-alpine AS builder
@@ -21,6 +21,9 @@ COPY . .
 # Set environment variables for build
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
+
+# Ensure public dir exists (Next.js optional; COPY in runner stage expects it)
+RUN mkdir -p /app/public
 
 # Build the application
 RUN npm run build
@@ -51,10 +54,6 @@ USER nextjs
 
 # Expose port
 EXPOSE 3001
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3001/api/health || exit 1
 
 # Start the application
 CMD ["node", "server.js"]

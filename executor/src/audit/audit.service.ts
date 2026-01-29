@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -47,11 +47,11 @@ export class AuditService {
     await this.auditLogRepository.update(id, updates);
     const updated = await this.auditLogRepository.findOne({ where: { id } });
 
-    if (updated) {
-      this.logger.log(`Audit log updated: ${id} - status: ${updated.status}`);
-      await this.sendToLoki(updated);
+    if (!updated) {
+      throw new NotFoundException(`Audit log not found after update: ${id}`);
     }
-
+    this.logger.log(`Audit log updated: ${id} - status: ${updated.status}`);
+    await this.sendToLoki(updated);
     return updated;
   }
 

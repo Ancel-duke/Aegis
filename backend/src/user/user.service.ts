@@ -13,7 +13,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { AuditService } from '../audit/audit.service';
 import { AuditEventType } from '../audit/entities/audit-event.entity';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { ConfigService } from '@nestjs/config';
 
 export interface UserChangeContext {
@@ -156,5 +156,37 @@ export class UserService {
 
   async validatePassword(plainPassword: string, hashedPassword: string): Promise<boolean> {
     return await bcrypt.compare(plainPassword, hashedPassword);
+  }
+
+  async setPasswordResetToken(
+    userId: string,
+    token: string,
+    expiresAt: Date,
+  ): Promise<void> {
+    await this.userRepository.update(userId, {
+      passwordResetToken: token,
+      passwordResetTokenExpiresAt: expiresAt,
+    });
+  }
+
+  async clearPasswordResetToken(userId: string): Promise<void> {
+    await this.userRepository.update(userId, {
+      passwordResetToken: null,
+      passwordResetTokenExpiresAt: null,
+    });
+  }
+
+  async findByPasswordResetToken(token: string): Promise<User | null> {
+    return await this.userRepository.findOne({
+      where: { passwordResetToken: token },
+    });
+  }
+
+  async updatePasswordFromReset(userId: string, hashedPassword: string): Promise<void> {
+    await this.userRepository.update(userId, {
+      password: hashedPassword,
+      passwordResetToken: null,
+      passwordResetTokenExpiresAt: null,
+    });
   }
 }

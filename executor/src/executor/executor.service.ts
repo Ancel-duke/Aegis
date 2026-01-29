@@ -259,7 +259,7 @@ export class ExecutorService {
       requestedBy: dto.requestedBy,
     });
 
-    const secret = this.configService.get<string>('JWT_SECRET');
+    const secret = this.configService.get<string>('JWT_SECRET') ?? '';
     const expectedSignature = crypto
       .createHmac('sha256', secret)
       .update(payload)
@@ -307,7 +307,7 @@ export class ExecutorService {
       requestedBy,
     });
 
-    const secret = this.configService.get<string>('JWT_SECRET');
+    const secret = this.configService.get<string>('JWT_SECRET') ?? '';
     return crypto.createHmac('sha256', secret).update(payload).digest('hex');
   }
 }

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth-store';
+import { useIsMobile } from '@/lib/use-is-mobile';
 import {
   Shield,
   LayoutDashboard,
@@ -17,7 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 
 interface NavItem {
@@ -25,6 +26,11 @@ interface NavItem {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   permission?: string;
+}
+
+interface SidebarProps {
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 const navigation: NavItem[] = [
@@ -41,10 +47,21 @@ const adminNavigation: NavItem[] = [
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
-export function Sidebar() {
+export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const isMobile = useIsMobile();
   const { user, logout, hasPermission } = useAuthStore();
   const [collapsed, setCollapsed] = useState(false);
+
+  const visible = isMobile ? isOpen : true;
+
+  useEffect(() => {
+    if (isMobile && isOpen) {
+      const handler = (e: KeyboardEvent) => e.key === 'Escape' && onClose?.();
+      document.addEventListener('keydown', handler);
+      return () => document.removeEventListener('keydown', handler);
+    }
+  }, [isMobile, isOpen, onClose]);
 
   const filteredNavigation = navigation.filter(
     (item) => !item.permission || hasPermission(item.permission)
@@ -58,8 +75,11 @@ export function Sidebar() {
     <aside
       className={cn(
         'fixed inset-y-0 left-0 z-50 flex flex-col bg-background border-r transition-all duration-300',
-        collapsed ? 'w-16' : 'w-64'
+        collapsed ? 'w-16' : 'w-64',
+        'lg:translate-x-0',
+        isMobile && (visible ? 'translate-x-0' : '-translate-x-full')
       )}
+      aria-label="Main navigation"
     >
       {/* Logo */}
       <div className="flex h-16 items-center justify-between px-4 border-b">
@@ -73,7 +93,8 @@ export function Sidebar() {
           variant="ghost"
           size="icon"
           onClick={() => setCollapsed(!collapsed)}
-          className="h-8 w-8"
+          className="h-9 w-9 min-h-[44px] min-w-[44px] lg:h-8 lg:w-8 lg:min-h-0 lg:min-w-0"
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           {collapsed ? (
             <ChevronRight className="h-4 w-4" />
@@ -84,7 +105,7 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto p-4 space-y-2">
+      <nav className="flex-1 overflow-y-auto p-4 space-y-2" aria-label="Primary">
         <div className="space-y-1">
           {filteredNavigation.map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -93,12 +114,13 @@ export function Sidebar() {
                 key={item.name}
                 href={item.href}
                 className={cn(
-                  'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                  'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                   isActive
                     ? 'bg-primary-100 text-primary-900 dark:bg-primary-900/20 dark:text-primary-100'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 )}
                 title={collapsed ? item.name : undefined}
+                onClick={isMobile ? onClose : undefined}
               >
                 <item.icon className="h-5 w-5 flex-shrink-0" />
                 {!collapsed && <span>{item.name}</span>}
@@ -124,12 +146,13 @@ export function Sidebar() {
                     key={item.name}
                     href={item.href}
                     className={cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                      'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                       isActive
                         ? 'bg-primary-100 text-primary-900 dark:bg-primary-900/20 dark:text-primary-100'
                         : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                     )}
                     title={collapsed ? item.name : undefined}
+                    onClick={isMobile ? onClose : undefined}
                   >
                     <item.icon className="h-5 w-5 flex-shrink-0" />
                     {!collapsed && <span>{item.name}</span>}
@@ -166,7 +189,8 @@ export function Sidebar() {
           variant="ghost"
           size={collapsed ? 'icon' : 'default'}
           onClick={() => logout()}
-          className={cn('mt-3', collapsed ? 'w-full' : 'w-full justify-start')}
+          className={cn('mt-3 min-h-[44px]', collapsed ? 'w-full' : 'w-full justify-start')}
+          aria-label="Sign out"
         >
           <LogOut className="h-4 w-4" />
           {!collapsed && <span className="ml-2">Sign Out</span>}

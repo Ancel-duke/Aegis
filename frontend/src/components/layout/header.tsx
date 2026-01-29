@@ -14,12 +14,15 @@ import { cn } from '@/lib/utils';
 interface HeaderProps {
   onMenuToggle?: () => void;
   showMenu?: boolean;
+  ariaLabelMenu?: string;
 }
 
-export function Header({ onMenuToggle, showMenu }: HeaderProps) {
+export function Header({ onMenuToggle, showMenu, ariaLabelMenu = 'Open menu' }: HeaderProps) {
   const { theme, setTheme } = useTheme();
   const { user } = useAuthStore();
-  const { unreadCount } = useAlertsStore();
+  const unreadCount = useAlertsStore((s) =>
+    s.alerts.filter((a) => a.status !== 'resolved').length
+  );
   const [searchOpen, setSearchOpen] = useState(false);
 
   return (
@@ -31,6 +34,8 @@ export function Header({ onMenuToggle, showMenu }: HeaderProps) {
             variant="ghost"
             size="icon"
             onClick={onMenuToggle}
+            aria-label={ariaLabelMenu}
+            className="min-h-[44px] min-w-[44px]"
           >
             {showMenu ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </Button>
@@ -42,11 +47,12 @@ export function Header({ onMenuToggle, showMenu }: HeaderProps) {
           searchOpen ? 'block' : 'hidden lg:block'
         )}>
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
             <Input
               type="search"
               placeholder="Search alerts, policies, logs..."
-              className="pl-10 bg-muted/50"
+              className="pl-10 bg-muted/50 min-h-[44px]"
+              aria-label="Search alerts, policies, and logs"
             />
           </div>
         </div>
@@ -57,15 +63,16 @@ export function Header({ onMenuToggle, showMenu }: HeaderProps) {
           <Button
             variant="ghost"
             size="icon"
-            className="lg:hidden"
+            className="lg:hidden min-h-[44px] min-w-[44px]"
             onClick={() => setSearchOpen(!searchOpen)}
+            aria-label={searchOpen ? 'Close search' : 'Open search'}
           >
             <Search className="h-5 w-5" />
           </Button>
 
           {/* Notifications */}
-          <Link href="/alerts">
-            <Button variant="ghost" size="icon" className="relative">
+          <Link href="/alerts" aria-label="View alerts">
+            <Button variant="ghost" size="icon" className="relative min-h-[44px] min-w-[44px]">
               <Bell className="h-5 w-5" />
               {unreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 text-[10px] font-bold text-white flex items-center justify-center">
@@ -80,6 +87,8 @@ export function Header({ onMenuToggle, showMenu }: HeaderProps) {
             variant="ghost"
             size="icon"
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="min-h-[44px] min-w-[44px]"
+            aria-label="Toggle theme"
           >
             <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
             <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />

@@ -43,10 +43,9 @@ export function JsonEditor({
     }
   }, [value]);
 
-  const handleEdit = (edit: { updated_src: Record<string, unknown> }) => {
-    if (!readOnly) {
-      const newValue = JSON.stringify(edit.updated_src, null, 2);
-      onChange(newValue);
+  const handleEdit = (edit: { updated_src?: Record<string, unknown> }) => {
+    if (!readOnly && edit.updated_src) {
+      onChange(JSON.stringify(edit.updated_src, null, 2));
     }
   };
 
@@ -80,9 +79,9 @@ export function JsonEditor({
           <ReactJsonView
             src={jsonValue}
             theme="monokai"
-            onEdit={readOnly ? false : handleEdit}
-            onAdd={readOnly ? false : handleEdit}
-            onDelete={readOnly ? false : handleEdit}
+            onEdit={readOnly ? undefined : handleEdit}
+            onAdd={readOnly ? undefined : handleEdit}
+            onDelete={readOnly ? undefined : handleEdit}
             displayDataTypes={false}
             displayObjectSize={false}
             enableClipboard={true}
