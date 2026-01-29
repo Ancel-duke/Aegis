@@ -13,7 +13,16 @@ import { AiModule } from './ai/ai.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { RedisModule } from './common/redis/redis.module';
 import { AuditModule } from './audit/audit.module';
+import { SettingsModule } from './settings/settings.module';
 import { validateEnvironment } from './common/config/env.validation';
+import { User } from './user/entities/user.entity';
+import { Alert } from './alerts/entities/alert.entity';
+import { PredictionResult } from './ai/entities/prediction-result.entity';
+import { ActionAuditLog } from './executor/entities/action-audit-log.entity';
+import { AuditEvent } from './audit/entities/audit-event.entity';
+import { Policy } from './policy/entities/policy.entity';
+import { PolicyAuditLog } from './policy/entities/policy-audit-log.entity';
+import { Role } from './policy/entities/role.entity';
 
 @Module({
   imports: [
@@ -34,7 +43,16 @@ import { validateEnvironment } from './common/config/env.validation';
         username: configService.get<string>('DB_USERNAME'),
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_DATABASE'),
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],
+        entities: [
+          User,
+          Alert,
+          PredictionResult,
+          ActionAuditLog,
+          AuditEvent,
+          Policy,
+          PolicyAuditLog,
+          Role,
+        ],
         synchronize: configService.get<string>('NODE_ENV') === 'development',
         logging: configService.get<string>('NODE_ENV') === 'development',
       }),
@@ -61,6 +79,7 @@ import { validateEnvironment } from './common/config/env.validation';
     CoreModule,
     AuthModule,
     UserModule,
+    SettingsModule,
     PolicyModule,
     ExecutorModule,
     AiModule,

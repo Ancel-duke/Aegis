@@ -8,7 +8,6 @@ import {
 
 @Entity('prediction_results')
 @Index(['predictionType', 'createdAt'])
-@Index(['createdAt'])
 export class PredictionResult {
   @PrimaryGeneratedColumn('uuid')
   id: string;

@@ -42,7 +42,7 @@ export class AiService {
       try {
         const response = await this.callAiEngine(dto);
         const duration = Date.now() - start;
-        await this.storePrediction(dto, response, true, null, duration);
+        await this.storePrediction(dto, response as Record<string, unknown>, true, null, duration);
         this.logger.log(
           `Prediction ${dto.type} completed in ${duration}ms (attempt ${attempt})`,
         );
@@ -90,7 +90,7 @@ export class AiService {
     dto: PredictDto,
     response: Record<string, unknown>,
     success: boolean,
-    errorMessage: string | null,
+    errorMessage: string | null | undefined,
     _durationMs: number | null,
   ): Promise<void> {
     try {
@@ -110,7 +110,7 @@ export class AiService {
               : null,
         severity: (response as any).severity ?? null,
         success,
-        errorMessage,
+        errorMessage: errorMessage ?? undefined,
       });
       await this.predictionRepository.save(entity);
     } catch (err) {

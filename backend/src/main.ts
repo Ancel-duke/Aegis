@@ -13,9 +13,11 @@ async function bootstrap() {
   const apiPrefix = configService.get<string>('API_PREFIX', 'api/v1');
   app.setGlobalPrefix(apiPrefix);
 
-  // CORS
+  // CORS: specific origin(s) required when credentials are used (cannot use '*')
+  const corsOrigin = configService.get<string>('CORS_ORIGIN', 'http://localhost:3001');
+  const origins = corsOrigin.split(',').map((o) => o.trim()).filter(Boolean);
   app.enableCors({
-    origin: configService.get<string>('CORS_ORIGIN', '*'),
+    origin: origins.length > 0 ? origins : 'http://localhost:3001',
     credentials: true,
   });
 

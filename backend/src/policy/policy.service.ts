@@ -84,7 +84,7 @@ export class PolicyService {
 
       // Log the evaluation
       await this.logEvaluation({
-        userId: context.userId || null,
+        userId: context.userId ?? undefined,
         action,
         resource,
         result: decision.allowed ? EvaluationResult.ALLOW : EvaluationResult.DENY,
@@ -104,7 +104,7 @@ export class PolicyService {
 
       // Log error in audit
       await this.logEvaluation({
-        userId: context.userId || null,
+        userId: context.userId ?? undefined,
         action,
         resource,
         result: EvaluationResult.ERROR,
@@ -331,6 +331,26 @@ export class PolicyService {
   /**
    * Audit Log Operations
    */
+
+  /**
+   * Get policy evaluation counts aggregated by userId and action (for metrics/dashboard)
+   */
+  async getEvaluationCounts(): Promise<{ userId: string; action: string; count: number }[]> {
+    const rows = await this.auditLogRepository
+      .createQueryBuilder('log')
+      .select('log.userId', 'userId')
+      .addSelect('log.action', 'action')
+      .addSelect('COUNT(*)::int', 'count')
+      .groupBy('log.userId')
+      .addGroupBy('log.action')
+      .getRawMany<{ userId: string; action: string; count: string }>();
+
+    return rows.map((r) => ({
+      userId: r.userId ?? 'anonymous',
+      action: r.action,
+      count: parseInt(r.count, 10),
+    }));
+  }
 
   async getAuditLogs(filters?: {
     userId?: string;

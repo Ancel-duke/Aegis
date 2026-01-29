@@ -52,7 +52,7 @@ export default function AuthLayout({
         </div>
         
         <p className="text-primary-300 text-sm">
-          © 2024 Aegis Platform. Secure by design.
+          © {new Date().getFullYear()} Aegis Platform. Secure by design.
         </p>
       </div>
       

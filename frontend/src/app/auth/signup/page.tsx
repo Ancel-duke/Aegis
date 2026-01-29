@@ -67,11 +67,13 @@ export default function SignupPage() {
   const onSubmit = async (data: SignupFormData) => {
     try {
       clearError();
-      await signup(data.email, data.password, data.firstName);
+      await signup(data.email, data.password, data.firstName, data.lastName);
       showSuccess('Account Created', 'Welcome to Aegis!');
       router.push('/dashboard');
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Signup failed';
+      const message =
+        (err as { message?: string })?.message ??
+        (err instanceof Error ? err.message : 'Signup failed');
       showError('Signup Failed', message);
     }
   };

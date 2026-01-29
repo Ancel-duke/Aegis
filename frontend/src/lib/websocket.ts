@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { io, Socket } from 'socket.io-client';
 
 type WebSocketMessage = {
   type: string;
@@ -28,14 +29,26 @@ export function useWebSocket({
   reconnectInterval = 5000,
   maxRetries = 5,
 }: UseWebSocketOptions) {
-  const ws = useRef<WebSocket | null>(null);
+  const socket = useRef<Socket | null>(null);
   const retryCount = useRef(0);
   const reconnectTimeout = useRef<NodeJS.Timeout | null>(null);
+  const isDisconnectingRef = useRef(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  
+  // Store callbacks in refs to avoid recreating connect/disconnect
+  const callbacksRef = useRef({ onMessage, onOpen, onClose, onError });
+  const optionsRef = useRef({ reconnect, reconnectInterval, maxRetries });
+  
+  // Update refs when callbacks/options change
+  useEffect(() => {
+    callbacksRef.current = { onMessage, onOpen, onClose, onError };
+    optionsRef.current = { reconnect, reconnectInterval, maxRetries };
+  }, [onMessage, onOpen, onClose, onError, reconnect, reconnectInterval, maxRetries]);
 
   const connect = useCallback(() => {
-    if (ws.current?.readyState === WebSocket.OPEN) {
+    // Prevent multiple simultaneous connection attempts
+    if (socket.current?.connected || isConnecting || isDisconnectingRef.current) {
       return;
     }
 
@@ -59,95 +72,143 @@ export function useWebSocket({
       if (!token) {
         console.warn('No JWT token available for WebSocket connection');
         setIsConnecting(false);
-        onError?.(new Event('no-token') as any);
+        callbacksRef.current.onError?.(new Event('no-token') as any);
         return;
       }
-      
-      // Add token to URL query for authentication
-      const wsUrl = `${url}?token=${encodeURIComponent(token)}`;
-      ws.current = new WebSocket(wsUrl);
 
-      ws.current.onopen = () => {
+      // Socket.IO connection options
+      // Extract base URL - strip any path/namespace to connect to root namespace
+      // Socket.IO treats paths in the URL as namespaces, so we need just the base URL
+      const urlObj = new URL(url.replace(/^ws:\/\//, 'http://').replace(/^wss:\/\//, 'https://'));
+      const baseUrl = `${urlObj.protocol}//${urlObj.host}`;
+      
+      // Disconnect existing socket if any
+      if (socket.current) {
+        socket.current.removeAllListeners();
+        socket.current.disconnect();
+        socket.current = null;
+      }
+      
+      // Connect to root namespace (AlertsGateway is on root namespace)
+      socket.current = io(baseUrl, {
+        auth: { token },
+        query: { token },
+        transports: ['websocket', 'polling'],
+        reconnection: optionsRef.current.reconnect,
+        reconnectionDelay: optionsRef.current.reconnectInterval,
+        reconnectionAttempts: optionsRef.current.maxRetries,
+        autoConnect: true,
+      });
+
+      socket.current.on('connect', () => {
         setIsConnected(true);
         setIsConnecting(false);
         retryCount.current = 0;
-        // Send authentication message if needed (some backends require this)
-        if (ws.current && token) {
-          try {
-            ws.current.send(JSON.stringify({
-              type: 'auth',
-              token: token,
-            }));
-          } catch {
-            // Some backends authenticate via query param only
-          }
-        }
-        onOpen?.();
-      };
+        callbacksRef.current.onOpen?.();
+      });
 
-      ws.current.onclose = () => {
+      socket.current.on('disconnect', (reason) => {
         setIsConnected(false);
         setIsConnecting(false);
-        onClose?.();
-
-        // Attempt reconnection
-        if (reconnect && retryCount.current < maxRetries) {
+        callbacksRef.current.onClose?.();
+        
+        // Only attempt manual reconnection if not intentionally disconnected
+        if (
+          !isDisconnectingRef.current &&
+          optionsRef.current.reconnect &&
+          reason !== 'io client disconnect' &&
+          retryCount.current < optionsRef.current.maxRetries
+        ) {
           retryCount.current += 1;
           reconnectTimeout.current = setTimeout(() => {
-            connect();
-          }, reconnectInterval);
+            if (!isDisconnectingRef.current) {
+              connect();
+            }
+          }, optionsRef.current.reconnectInterval);
         }
-      };
+      });
 
-      ws.current.onerror = (error) => {
+      socket.current.on('connect_error', (error) => {
         setIsConnecting(false);
-        console.error('WebSocket error:', error);
-        onError?.(error);
-      };
-
-      ws.current.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          
-          // Handle authentication response
-          if (message.type === 'auth' && message.status === 'error') {
-            console.error('WebSocket authentication failed:', message.error);
-            setIsConnected(false);
-            setIsConnecting(false);
-            ws.current?.close();
-            onError?.(new Event('auth-failed') as any);
-            return;
-          }
-          
-          // Handle regular messages
-          if (message.type && message.payload !== undefined) {
-            onMessage?.(message);
-          }
-        } catch (error) {
-          console.error('Failed to parse WebSocket message:', error);
+        // Only log errors that aren't "Invalid namespace" to reduce noise
+        if (error.message !== 'Invalid namespace') {
+          console.error('WebSocket connection error:', error);
         }
-      };
+        callbacksRef.current.onError?.(error as any);
+      });
+
+      // Listen for alert events (backend emits 'alert' with { event: 'alert', data: {...} })
+      socket.current.on('alert', (data: { event?: string; data?: unknown }) => {
+        if (callbacksRef.current.onMessage && data.data) {
+          callbacksRef.current.onMessage({
+            type: 'alert',
+            payload: data.data,
+          });
+        }
+      });
+
+      // Listen for anomaly events
+      socket.current.on('anomaly', (data: { event?: string; data?: unknown }) => {
+        if (callbacksRef.current.onMessage && data.data) {
+          callbacksRef.current.onMessage({
+            type: 'anomaly',
+            payload: data.data,
+          });
+        }
+      });
+
+      // Generic message handler for other event types
+      socket.current.onAny((eventName, ...args) => {
+        if (callbacksRef.current.onMessage && args.length > 0) {
+          const payload = args[0];
+          if (typeof payload === 'object' && payload !== null) {
+            callbacksRef.current.onMessage({
+              type: eventName,
+              payload: 'data' in payload ? payload.data : payload,
+            });
+          }
+        }
+      });
 
     } catch (error) {
       setIsConnecting(false);
       console.error('Failed to connect WebSocket:', error);
+      callbacksRef.current.onError?.(error as any);
     }
-  }, [url, onMessage, onOpen, onClose, onError, reconnect, reconnectInterval, maxRetries]);
+  }, [url, isConnecting]);
 
   const disconnect = useCallback(() => {
+    isDisconnectingRef.current = true;
+    
     if (reconnectTimeout.current) {
       clearTimeout(reconnectTimeout.current);
+      reconnectTimeout.current = null;
     }
-    if (ws.current) {
-      ws.current.close();
-      ws.current = null;
+    
+    if (socket.current) {
+      // Remove all listeners to prevent errors during disconnect
+      socket.current.removeAllListeners();
+      
+      // Only disconnect if socket is actually connected or connecting
+      if (socket.current.connected || socket.current.connecting) {
+        socket.current.disconnect();
+      }
+      
+      socket.current = null;
     }
+    
     setIsConnected(false);
+    setIsConnecting(false);
+    
+    // Reset flag after a short delay to allow cleanup
+    setTimeout(() => {
+      isDisconnectingRef.current = false;
+    }, 100);
   }, []);
 
   const send = useCallback((data: WebSocketMessage) => {
-    if (ws.current?.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify(data));
+    if (socket.current?.connected) {
+      socket.current.emit(data.type, data.payload);
     } else {
       console.warn('WebSocket is not connected');
     }
@@ -159,7 +220,8 @@ export function useWebSocket({
     return () => {
       disconnect();
     };
-  }, [connect, disconnect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url]); // Only depend on url, not connect/disconnect
 
   return {
     isConnected,

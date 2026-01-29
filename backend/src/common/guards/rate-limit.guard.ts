@@ -47,7 +47,7 @@ export class RateLimitGuard implements CanActivate {
 
       if (current > rateLimitOptions.limit) {
         this.logger.warn(
-          `Rate limit exceeded for user ${userId} on endpoint ${endpoint}`,
+          `Rate limit exceeded for user ${subject} on endpoint ${endpoint}`,
         );
         throw new HttpException(
           {
