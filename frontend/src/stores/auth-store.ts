@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { User, UserRole } from '@/types';
+import { User, UserRole, ApiError } from '@/types';
 import { api } from '@/lib/api/client';
 
 interface AuthState {
@@ -12,7 +12,7 @@ interface AuthState {
 
 interface AuthActions {
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, username: string) => Promise<void>;
+  signup: (email: string, password: string, username: string, lastName?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   clearError: () => void;
@@ -25,7 +25,7 @@ type AuthStore = AuthState & AuthActions;
 const initialState: AuthState = {
   user: null,
   isAuthenticated: false,
-  isLoading: true,
+  isLoading: false,
   error: null,
 };
 
@@ -125,7 +125,7 @@ export const useAuthStore = create<AuthStore>()(
         }
       },
 
-      signup: async (email: string, password: string, username: string) => {
+      signup: async (email: string, password: string, username: string, lastName?: string) => {
         set({ isLoading: true, error: null });
         
         try {
@@ -134,15 +134,16 @@ export const useAuthStore = create<AuthStore>()(
             email,
             password,
             firstName: username,
+            ...(lastName !== undefined && lastName !== '' ? { lastName } : {}),
           });
           
           // Store tokens if not HttpOnly (fallback)
           if (typeof window !== 'undefined') {
             try {
-              if (tokenResponse.accessToken) {
+              if (tokenResponse?.accessToken) {
                 localStorage.setItem('accessToken', tokenResponse.accessToken);
               }
-              if (tokenResponse.refreshToken) {
+              if (tokenResponse?.refreshToken) {
                 localStorage.setItem('refreshToken', tokenResponse.refreshToken);
               }
             } catch {
@@ -173,7 +174,9 @@ export const useAuthStore = create<AuthStore>()(
             error: null,
           });
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Signup failed';
+          const message =
+            (error as ApiError)?.message ??
+            (error instanceof Error ? error.message : 'Signup failed');
           set({
             user: null,
             isAuthenticated: false,
@@ -181,6 +184,8 @@ export const useAuthStore = create<AuthStore>()(
             error: message,
           });
           throw error;
+        } finally {
+          set((state) => ({ ...state, isLoading: false }));
         }
       },
 

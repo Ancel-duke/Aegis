@@ -150,7 +150,7 @@ export class UserService {
       : null;
 
     await this.userRepository.update(userId, {
-      refreshToken: hashedToken,
+      refreshToken: hashedToken ?? undefined,
     });
   }
 

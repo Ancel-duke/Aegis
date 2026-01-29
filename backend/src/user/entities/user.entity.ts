@@ -36,9 +36,12 @@ export class User {
   @Column({ default: true })
   isActive: boolean;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   @Exclude()
-  refreshToken: string;
+  refreshToken: string | null;
+
+  @Column({ type: 'jsonb', nullable: true, default: {} })
+  preferences: Record<string, unknown>;
 
   @ManyToMany(() => Role, (role) => role.users, { eager: true })
   @JoinTable({

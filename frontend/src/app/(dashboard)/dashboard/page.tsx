@@ -8,6 +8,7 @@ import { StatCard } from '@/components/dashboard/stat-card';
 import { LineChart } from '@/components/charts/line-chart';
 import { AreaChart } from '@/components/charts/area-chart';
 import { DonutChart } from '@/components/charts/donut-chart';
+import { BarChart } from '@/components/charts/bar-chart';
 import { SkeletonCard, SkeletonChart } from '@/components/ui/skeleton';
 import { TimeSeriesData } from '@/types';
 import { useMetricsStore } from '@/stores/metrics-store';
@@ -32,9 +33,11 @@ export default function DashboardPage() {
   const {
     current,
     historical,
+    policyEvaluationCounts,
     isLoading: metricsLoading,
     fetchCurrent,
     fetchHistorical,
+    fetchPolicyEvaluationCounts,
     refresh,
   } = useMetricsStore();
 
@@ -54,16 +57,18 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchCurrent();
     fetchHistorical();
+    fetchPolicyEvaluationCounts();
     fetchAlerts();
     fetchAnomalies();
 
     // Refresh metrics every 30 seconds
     const interval = setInterval(() => {
       fetchCurrent();
+      fetchPolicyEvaluationCounts();
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [fetchCurrent, fetchHistorical, fetchAlerts, fetchAnomalies]);
+  }, [fetchCurrent, fetchHistorical, fetchPolicyEvaluationCounts, fetchAlerts, fetchAnomalies]);
 
   // Calculate stats
   const activeAlerts = alerts.filter((a) => !a.resolved);
@@ -157,7 +162,38 @@ export default function DashboardPage() {
 
       {/* Charts row */}
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* CPU & Memory Chart */}
+        {/* Policy Evaluation Counts */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5" />
+              Policy Evaluations
+            </CardTitle>
+            <CardDescription>Policy evaluation counts per user/action</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {metricsLoading ? (
+              <SkeletonChart />
+            ) : policyEvaluationCounts.length > 0 ? (
+              <BarChart
+                data={policyEvaluationCounts.map((item) => ({
+                  name: `${item.userId} - ${item.action}`,
+                  value: item.count,
+                  color: item.count > 100 ? '#ef4444' : item.count > 50 ? '#f97316' : '#22c55e',
+                }))}
+                height={250}
+                formatValue={(v) => v.toString()}
+                horizontal={true}
+              />
+            ) : (
+              <div className="text-center py-12 text-muted-foreground">
+                <Shield className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>No policy evaluation data available</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        {/* System Resources Chart */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DeepPartial } from 'typeorm';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { ActionAuditLog } from './entities/action-audit-log.entity';
 import { ExecutorActionDto } from './dto/executor-action.dto';
@@ -155,10 +155,10 @@ export class ExecutorService {
       actionParams: dto.actionParams ?? {},
       requestedBy: dto.requestedBy,
       errorMessage: dto.errorMessage,
-      result,
+      result: result ?? undefined,
       ipAddress: dto.ipAddress,
-      signatureProvided: dto.signature ? '[REDACTED]' : null,
-    });
+      signatureProvided: dto.signature ? '[REDACTED]' : undefined,
+    } as DeepPartial<ActionAuditLog>);
     return await this.auditLogRepository.save(entity);
   }
 
@@ -169,13 +169,16 @@ export class ExecutorService {
     errorMessage: string | null,
     result: Record<string, unknown> | null,
   ): Promise<void> {
-    await this.auditLogRepository.update(id, {
+    const updatePayload: Partial<ActionAuditLog> = {
       status,
       executionDuration: duration,
       errorMessage: errorMessage ?? undefined,
-      result: result ?? undefined,
       completedAt: new Date(),
-    });
+    };
+    if (result !== null && result !== undefined) {
+      updatePayload.result = result;
+    }
+    await this.auditLogRepository.update(id, updatePayload as any);
   }
 
   private async simulateAction(dto: ExecutorActionDto): Promise<void> {

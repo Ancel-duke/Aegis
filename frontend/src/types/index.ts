@@ -215,3 +215,30 @@ export interface PaginatedResponse<T> {
   limit: number;
   totalPages: number;
 }
+
+// Settings
+export interface NotificationPreferences {
+  email?: boolean;
+  push?: boolean;
+  websocket?: boolean;
+  alertSeverities?: string[];
+  alertFrequency?: 'realtime' | 'hourly' | 'daily';
+}
+
+export interface UIPreferences {
+  theme?: 'light' | 'dark' | 'system';
+  dashboardLayout?: 'default' | 'compact' | 'detailed';
+  itemsPerPage?: number;
+}
+
+export interface AlertPreferences {
+  defaultSeverityFilter?: string[];
+  autoAcknowledge?: boolean;
+  soundEnabled?: boolean;
+}
+
+export interface UserSettings {
+  notifications: NotificationPreferences;
+  ui: UIPreferences;
+  alerts: AlertPreferences;
+}

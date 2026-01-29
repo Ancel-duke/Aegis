@@ -14,8 +14,10 @@ describe('UserController', () => {
     password: 'hashedPassword',
     firstName: 'John',
     lastName: 'Doe',
+    avatar: '',
     isActive: true,
-    refreshToken: null,
+    refreshToken: null as string | null,
+    roles: [],
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -72,16 +74,18 @@ describe('UserController', () => {
   describe('update', () => {
     it('should update a user', async () => {
       const updateDto: UpdateUserDto = { firstName: 'Jane' };
-      const result = await controller.update(mockUser.id, updateDto);
+      const mockReq = { ip: '127.0.0.1', socket: { remoteAddress: '127.0.0.1' } } as any;
+      const result = await controller.update(mockUser.id, updateDto, mockUser, mockReq);
       expect(result).toEqual(mockUser);
-      expect(service.update).toHaveBeenCalledWith(mockUser.id, updateDto);
+      expect(service.update).toHaveBeenCalledWith(mockUser.id, updateDto, expect.any(Object));
     });
   });
 
   describe('remove', () => {
     it('should delete a user', async () => {
-      await controller.remove(mockUser.id);
-      expect(service.remove).toHaveBeenCalledWith(mockUser.id);
+      const mockReq = { ip: '127.0.0.1', socket: { remoteAddress: '127.0.0.1' } } as any;
+      await controller.remove(mockUser.id, mockUser, mockReq);
+      expect(service.remove).toHaveBeenCalledWith(mockUser.id, expect.any(Object));
     });
   });
 });

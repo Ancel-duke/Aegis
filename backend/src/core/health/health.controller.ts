@@ -4,6 +4,7 @@ import {
   HealthCheckService,
   TypeOrmHealthIndicator,
   HealthCheckResult,
+  HealthIndicatorResult,
 } from '@nestjs/terminus';
 import { Public } from '../../auth/decorators/public.decorator';
 import { RedisService } from '../../common/redis/redis.service';
@@ -30,21 +31,21 @@ export class HealthController {
     ]);
   }
 
-  private async redisPingCheck(): Promise<{ redis: { status: string } }> {
+  private async redisPingCheck(): Promise<HealthIndicatorResult> {
     try {
       const client = this.redisService.getClient();
       await client.ping();
-      return { redis: { status: 'up' } };
+      return { redis: { status: 'up' } } as HealthIndicatorResult;
     } catch (error) {
       throw new Error(`Redis is down: ${(error as Error).message}`);
     }
   }
 
-  private async aiEnginePingCheck(): Promise<{ aiEngine: { status: string } }> {
+  private async aiEnginePingCheck(): Promise<HealthIndicatorResult> {
     const url = this.configService.get<string>('AI_ENGINE_URL', 'http://localhost:8000');
     try {
       await axios.get(`${url}/health`, { timeout: 5000 });
-      return { aiEngine: { status: 'up' } };
+      return { aiEngine: { status: 'up' } } as HealthIndicatorResult;
     } catch (error) {
       throw new Error(`AI Engine unreachable: ${(error as Error).message}`);
     }

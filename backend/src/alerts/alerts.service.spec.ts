@@ -64,6 +64,7 @@ describe('AlertsService', () => {
         orderBy: jest.fn().mockReturnThis(),
         limit: jest.fn().mockReturnThis(),
         getMany: jest.fn().mockResolvedValue([{ id: '1', title: 'Test' }]),
+        getRawMany: jest.fn().mockResolvedValue([]),
       }));
       const result = await service.findAll();
       expect(Array.isArray(result)).toBe(true);

@@ -18,6 +18,7 @@ export class AlertsService {
     @InjectRepository(Alert)
     private alertRepository: Repository<Alert>,
     private redisService: RedisService,
+    private alertsGateway: AlertsGateway,
   ) {}
 
   async findAll(filters?: { status?: string; severity?: string; limit?: number }): Promise<Alert[]> {

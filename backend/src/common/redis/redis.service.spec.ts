@@ -6,13 +6,13 @@ describe('RedisService', () => {
   let service: RedisService;
 
   const mockConfigService = {
-    get: jest.fn((key: string, defaultValue?: any) => {
-      const config = {
+    get: jest.fn((key: string, defaultValue?: unknown) => {
+      const config: Record<string, string | number> = {
         REDIS_HOST: 'localhost',
         REDIS_PORT: 6379,
         REDIS_PASSWORD: '',
       };
-      return config[key] || defaultValue;
+      return config[key] ?? defaultValue;
     }),
   };
 

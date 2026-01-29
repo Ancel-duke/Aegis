@@ -42,6 +42,30 @@ export default function AlertsPage() {
   const [expandedAlerts, setExpandedAlerts] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const alertsEndRef = useRef<HTMLDivElement>(null);
+
+  // Filter alerts by search query and filters (must be before any effect that uses it)
+  const displayedAlerts = alerts.filter((alert) => {
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      if (
+        !alert.title.toLowerCase().includes(query) &&
+        !(alert.message || '').toLowerCase().includes(query) &&
+        !(alert.source || '').toLowerCase().includes(query)
+      ) {
+        return false;
+      }
+    }
+    if (filters.severity?.length && !filters.severity.includes(alert.severity)) {
+      return false;
+    }
+    if (filters.status) {
+      if (filters.status === 'open' && alert.resolved) return false;
+      if (filters.status === 'resolved' && !alert.resolved) return false;
+      if (filters.status === 'acknowledged' && alert.status !== 'acknowledged') return false;
+    }
+    return true;
+  });
 
   // WebSocket connection
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL || process.env.NEXT_PUBLIC_API_URL?.replace('http', 'ws') || 'ws://localhost:3000';
@@ -77,35 +101,6 @@ export default function AlertsPage() {
       alertsEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [displayedAlerts.length]);
-
-  // Filter alerts by search query and filters
-  const displayedAlerts = alerts.filter((alert) => {
-    // Search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      if (
-        !alert.title.toLowerCase().includes(query) &&
-        !(alert.message || '').toLowerCase().includes(query) &&
-        !(alert.source || '').toLowerCase().includes(query)
-      ) {
-        return false;
-      }
-    }
-    
-    // Severity filter
-    if (filters.severity?.length && !filters.severity.includes(alert.severity)) {
-      return false;
-    }
-    
-    // Status filter
-    if (filters.status) {
-      if (filters.status === 'open' && alert.resolved) return false;
-      if (filters.status === 'resolved' && !alert.resolved) return false;
-      if (filters.status === 'acknowledged' && alert.status !== 'acknowledged') return false;
-    }
-    
-    return true;
-  });
 
   const handleResolve = async (id: string) => {
     try {

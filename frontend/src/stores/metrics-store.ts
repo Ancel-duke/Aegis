@@ -13,9 +13,16 @@ interface HistoricalMetrics {
   count: number;
 }
 
+interface PolicyEvaluationCounts {
+  userId: string;
+  action: string;
+  count: number;
+}
+
 interface MetricsState {
   current: CurrentMetrics | null;
   historical: HistoricalMetrics[];
+  policyEvaluationCounts: PolicyEvaluationCounts[];
   isLoading: boolean;
   error: string | null;
   lastFetched: Date | null;
@@ -24,6 +31,7 @@ interface MetricsState {
 interface MetricsActions {
   fetchCurrent: () => Promise<void>;
   fetchHistorical: (days?: number) => Promise<void>;
+  fetchPolicyEvaluationCounts: () => Promise<void>;
   refresh: () => Promise<void>;
   clearError: () => void;
 }
@@ -33,6 +41,7 @@ type MetricsStore = MetricsState & MetricsActions;
 export const useMetricsStore = create<MetricsStore>((set) => ({
   current: null,
   historical: [],
+  policyEvaluationCounts: [],
   isLoading: false,
   error: null,
   lastFetched: null,
@@ -69,10 +78,22 @@ export const useMetricsStore = create<MetricsStore>((set) => ({
     }
   },
 
+  fetchPolicyEvaluationCounts: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await api.get<PolicyEvaluationCounts[]>('/metrics/policy-evaluation-counts');
+      set({ policyEvaluationCounts: response, isLoading: false });
+    } catch (error) {
+      // Endpoint may not exist yet, fail silently
+      set({ policyEvaluationCounts: [], isLoading: false });
+    }
+  },
+
   refresh: async () => {
     await Promise.all([
       useMetricsStore.getState().fetchCurrent(),
       useMetricsStore.getState().fetchHistorical(),
+      useMetricsStore.getState().fetchPolicyEvaluationCounts(),
     ]);
   },
 
