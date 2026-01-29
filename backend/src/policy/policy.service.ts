@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Policy, PolicyEffect, PolicyType } from './entities/policy.entity';
@@ -276,6 +281,7 @@ export class PolicyService {
    */
 
   async createPolicy(createPolicyDto: CreatePolicyDto): Promise<Policy> {
+    this.validatePolicyConditions(createPolicyDto.conditions);
     const policy = this.policyRepository.create(createPolicyDto);
     const saved = await this.policyRepository.save(policy);
     this.logger.log(`Policy created: ${saved.name} (${saved.id})`);
@@ -295,11 +301,25 @@ export class PolicyService {
   }
 
   async updatePolicy(id: string, updatePolicyDto: UpdatePolicyDto): Promise<Policy> {
+    if (updatePolicyDto.conditions !== undefined) {
+      this.validatePolicyConditions(updatePolicyDto.conditions);
+    }
     const policy = await this.findPolicyById(id);
     Object.assign(policy, updatePolicyDto);
     const updated = await this.policyRepository.save(policy);
     this.logger.log(`Policy updated: ${updated.name} (${updated.id})`);
     return updated;
+  }
+
+  /**
+   * Validate policy conditions - must be a plain object (valid JSON structure)
+   */
+  private validatePolicyConditions(conditions: Record<string, any>): void {
+    if (conditions === null || typeof conditions !== 'object' || Array.isArray(conditions)) {
+      throw new BadRequestException(
+        'Policy conditions must be a valid JSON object',
+      );
+    }
   }
 
   async deletePolicy(id: string): Promise<void> {

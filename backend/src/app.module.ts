@@ -2,11 +2,17 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { CoreModule } from './core/core.module';
+import { MetricsInterceptor } from './core/metrics/metrics.interceptor';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { PolicyModule } from './policy/policy.module';
+import { ExecutorModule } from './executor/executor.module';
+import { AiModule } from './ai/ai.module';
+import { AlertsModule } from './alerts/alerts.module';
 import { RedisModule } from './common/redis/redis.module';
+import { AuditModule } from './audit/audit.module';
 import { validateEnvironment } from './common/config/env.validation';
 
 @Module({
@@ -51,10 +57,20 @@ import { validateEnvironment } from './common/config/env.validation';
     RedisModule,
 
     // Feature Modules
+    AuditModule,
     CoreModule,
     AuthModule,
     UserModule,
     PolicyModule,
+    ExecutorModule,
+    AiModule,
+    AlertsModule,
+  ],
+  providers: [
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: MetricsInterceptor,
+    },
   ],
 })
 export class AppModule {}

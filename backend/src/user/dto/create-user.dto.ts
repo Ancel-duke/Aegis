@@ -18,4 +18,9 @@ export class CreateUserDto {
   @IsOptional()
   @MaxLength(50)
   lastName?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(500)
+  avatar?: string;
 }

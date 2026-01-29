@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS users (
     password VARCHAR(255) NOT NULL,
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
+    avatar VARCHAR(500),
     is_active BOOLEAN DEFAULT true,
     refresh_token VARCHAR(500),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -129,6 +130,94 @@ CREATE INDEX idx_policy_audit_logs_context ON policy_audit_logs USING gin(contex
 
 -- Partition by month for better query performance
 -- This should be set up as needed based on data volume
+
+-- =====================================================
+-- AUDIT_EVENTS TABLE (Auth & User audit trail)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS audit_events (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_type VARCHAR(50) NOT NULL,
+    user_id UUID,
+    entity_type VARCHAR(100),
+    entity_id VARCHAR(255),
+    details JSONB DEFAULT '{}'::jsonb,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE INDEX idx_audit_events_event_type_created_at ON audit_events(event_type, created_at DESC);
+CREATE INDEX idx_audit_events_user_id_created_at ON audit_events(user_id, created_at DESC);
+CREATE INDEX idx_audit_events_created_at ON audit_events(created_at DESC);
+
+GRANT SELECT, INSERT ON audit_events TO aegis_backend_user;
+
+-- =====================================================
+-- ACTION_AUDIT_LOGS TABLE (Executor - Immutable)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS action_audit_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    action_type VARCHAR(50) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    namespace VARCHAR(255) NOT NULL,
+    resource_type VARCHAR(50) NOT NULL,
+    resource_name VARCHAR(255) NOT NULL,
+    action_params JSONB NOT NULL DEFAULT '{}'::jsonb,
+    requested_by VARCHAR(255),
+    execution_duration INTEGER,
+    error_message TEXT,
+    result JSONB,
+    ip_address VARCHAR(45),
+    signature_provided VARCHAR(500),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    completed_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE INDEX idx_action_audit_logs_namespace ON action_audit_logs(namespace);
+CREATE INDEX idx_action_audit_logs_action_type ON action_audit_logs(action_type);
+CREATE INDEX idx_action_audit_logs_status ON action_audit_logs(status);
+CREATE INDEX idx_action_audit_logs_created_at ON action_audit_logs(created_at DESC);
+
+GRANT SELECT, INSERT ON action_audit_logs TO aegis_backend_user;
+
+-- =====================================================
+-- PREDICTION_RESULTS TABLE (AI predictions)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS prediction_results (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    prediction_type VARCHAR(50) NOT NULL,
+    request_payload JSONB DEFAULT '{}'::jsonb,
+    response_payload JSONB DEFAULT '{}'::jsonb,
+    score FLOAT,
+    severity VARCHAR(50),
+    success BOOLEAN DEFAULT true,
+    error_message TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE INDEX idx_prediction_results_type_created ON prediction_results(prediction_type, created_at DESC);
+CREATE INDEX idx_prediction_results_created_at ON prediction_results(created_at DESC);
+
+GRANT SELECT, INSERT ON prediction_results TO aegis_backend_user;
+
+-- =====================================================
+-- ALERTS TABLE
+-- =====================================================
+CREATE TABLE IF NOT EXISTS alerts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    severity VARCHAR(50) DEFAULT 'info',
+    status VARCHAR(50) DEFAULT 'open',
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_alerts_severity_created ON alerts(severity, created_at DESC);
+CREATE INDEX idx_alerts_status_created ON alerts(status, created_at DESC);
+
+GRANT SELECT, INSERT, UPDATE ON alerts TO aegis_backend_user;
 
 -- =====================================================
 -- SESSION_CACHE TABLE (for Redis fallback)

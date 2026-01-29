@@ -31,11 +31,12 @@ export class RateLimitGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest();
     const user = request.user;
-    const endpoint = `${request.method}:${request.route.path}`;
+    const path = request.route?.path ?? request.path ?? request.url?.split('?')[0] ?? 'unknown';
+    const endpoint = `${request.method}:${path}`;
 
-    // Create unique key per user and endpoint
-    const userId = user?.id || request.ip;
-    const key = `rate-limit:${userId}:${endpoint}`;
+    // Per IP for unauthenticated, per user for authenticated (Redis-backed)
+    const subject = user?.id ?? request.ip ?? request.socket?.remoteAddress ?? 'anonymous';
+    const key = `rate-limit:${subject}:${endpoint}`;
 
     try {
       const current = await this.redisService.incr(key);

@@ -7,9 +7,16 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { UserService } from '../user/user.service';
+import { AuditService } from '../audit/audit.service';
+import { AuditEventType } from '../audit/entities/audit-event.entity';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
 import * as bcrypt from 'bcrypt';
+
+export interface AuthRequestContext {
+  ipAddress?: string;
+  userAgent?: string;
+}
 
 export interface JwtPayload {
   sub: string;
@@ -30,22 +37,45 @@ export class AuthService {
     private userService: UserService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private auditService: AuditService,
   ) {}
 
-  async signup(signupDto: SignupDto): Promise<AuthTokens> {
+  async signup(
+    signupDto: SignupDto,
+    ctx?: AuthRequestContext,
+  ): Promise<AuthTokens> {
     const user = await this.userService.create(signupDto);
     const tokens = await this.generateTokens(user.id, user.email);
 
     await this.userService.updateRefreshToken(user.id, tokens.refreshToken);
 
-    this.logger.log(`User signed up: ${user.email}`);
+    await this.auditService.logAuthEvent({
+      eventType: AuditEventType.AUTH_SIGNUP,
+      userId: user.id,
+      email: user.email,
+      ipAddress: ctx?.ipAddress,
+      userAgent: ctx?.userAgent,
+      success: true,
+    });
+    this.logger.log(`Signup success for user id=${user.id}`);
     return tokens;
   }
 
-  async login(loginDto: LoginDto): Promise<AuthTokens> {
+  async login(
+    loginDto: LoginDto,
+    ctx?: AuthRequestContext,
+  ): Promise<AuthTokens> {
     const user = await this.userService.findByEmail(loginDto.email);
 
     if (!user) {
+      await this.auditService.logAuthEvent({
+        eventType: AuditEventType.AUTH_LOGIN_FAILURE,
+        email: loginDto.email,
+        ipAddress: ctx?.ipAddress,
+        userAgent: ctx?.userAgent,
+        success: false,
+        reason: 'user_not_found',
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
@@ -55,17 +85,43 @@ export class AuthService {
     );
 
     if (!isPasswordValid) {
+      await this.auditService.logAuthEvent({
+        eventType: AuditEventType.AUTH_LOGIN_FAILURE,
+        userId: user.id,
+        email: user.email,
+        ipAddress: ctx?.ipAddress,
+        userAgent: ctx?.userAgent,
+        success: false,
+        reason: 'invalid_password',
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
     if (!user.isActive) {
+      await this.auditService.logAuthEvent({
+        eventType: AuditEventType.AUTH_LOGIN_FAILURE,
+        userId: user.id,
+        email: user.email,
+        ipAddress: ctx?.ipAddress,
+        userAgent: ctx?.userAgent,
+        success: false,
+        reason: 'account_deactivated',
+      });
       throw new ForbiddenException('User account is deactivated');
     }
 
     const tokens = await this.generateTokens(user.id, user.email);
     await this.userService.updateRefreshToken(user.id, tokens.refreshToken);
 
-    this.logger.log(`User logged in: ${user.email}`);
+    await this.auditService.logAuthEvent({
+      eventType: AuditEventType.AUTH_LOGIN_SUCCESS,
+      userId: user.id,
+      email: user.email,
+      ipAddress: ctx?.ipAddress,
+      userAgent: ctx?.userAgent,
+      success: true,
+    });
+    this.logger.log(`Login success for user id=${user.id}`);
     return tokens;
   }
 
@@ -88,13 +144,20 @@ export class AuthService {
     const tokens = await this.generateTokens(user.id, user.email);
     await this.userService.updateRefreshToken(user.id, tokens.refreshToken);
 
-    this.logger.log(`Tokens refreshed for user: ${user.email}`);
+    this.logger.log(`Tokens refreshed for user id=${user.id}`);
     return tokens;
   }
 
-  async logout(userId: string): Promise<void> {
+  async logout(userId: string, ctx?: AuthRequestContext): Promise<void> {
     await this.userService.updateRefreshToken(userId, null);
-    this.logger.log(`User logged out: ${userId}`);
+    await this.auditService.logAuthEvent({
+      eventType: AuditEventType.AUTH_LOGOUT,
+      userId,
+      ipAddress: ctx?.ipAddress,
+      userAgent: ctx?.userAgent,
+      success: true,
+    });
+    this.logger.log(`Logout for user id=${userId}`);
   }
 
   async validateUser(email: string, password: string): Promise<any> {
