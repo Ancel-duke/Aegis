@@ -598,4 +598,4 @@ For issues:
 
 ---
 
-**Built with** ❤️ **for production reliability**
+**Built** **for production reliability**
