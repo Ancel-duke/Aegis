@@ -37,7 +37,13 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
             ref={ref}
             id={inputId}
             aria-invalid={!!error}
-            aria-describedby={error ? `${inputId}-error` : undefined}
+            aria-describedby={
+              error
+                ? `${inputId}-error`
+                : helperText
+                ? `${inputId}-helper`
+                : undefined
+            }
             {...props}
           />
           {isPassword && (
@@ -65,7 +71,9 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           </p>
         )}
         {helperText && !error && (
-          <p className="mt-1 text-sm text-muted-foreground">{helperText}</p>
+          <p id={`${inputId}-helper`} className="mt-1 text-sm text-muted-foreground">
+            {helperText}
+          </p>
         )}
       </div>
     );

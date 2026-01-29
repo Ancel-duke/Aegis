@@ -30,6 +30,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useState } from 'react';
+import { JsonEditor } from '@/components/ui/json-editor';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const policyTypeOptions: { label: string; value: PolicyType }[] = [
   { label: 'API Access', value: 'api_access' },
@@ -506,15 +508,16 @@ export default function PoliciesPage() {
               </div>
 
               <div>
-                <label className="text-sm font-medium mb-2 block">Conditions (JSON)</label>
-                <textarea
-                  {...register('conditions')}
-                  placeholder='{"role": "admin", "userId": "..."}'
-                  className="w-full min-h-[150px] rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                <JsonEditor
+                  value={watch('conditions') || '{}'}
+                  onChange={(newValue) => {
+                    setValue('conditions', newValue, { shouldValidate: true });
+                  }}
+                  error={errors.conditions?.message}
+                  label="Conditions (JSON)"
+                  height="300px"
+                  readOnly={false}
                 />
-                {errors.conditions && (
-                  <p className="text-sm text-red-500 mt-1">{errors.conditions.message}</p>
-                )}
               </div>
 
               <div>

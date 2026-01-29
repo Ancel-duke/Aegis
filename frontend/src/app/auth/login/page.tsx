@@ -103,6 +103,7 @@ export default function LoginPage() {
               <Link
                 href="/auth/forgot-password"
                 className="text-primary-600 hover:text-primary-700"
+                aria-label="Reset your password"
               >
                 Forgot password?
               </Link>

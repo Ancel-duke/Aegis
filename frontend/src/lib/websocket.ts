@@ -43,18 +43,45 @@ export function useWebSocket({
 
     try {
       // Get JWT token for authentication
-      const token = typeof window !== 'undefined' 
-        ? (localStorage.getItem('accessToken') || document.cookie.match(/accessToken=([^;]+)/)?.[1])
-        : null;
+      const getToken = () => {
+        if (typeof window === 'undefined') return null;
+        // Try localStorage first
+        const localToken = localStorage.getItem('accessToken');
+        if (localToken) return localToken;
+        // Try cookie (if not HttpOnly)
+        const cookieMatch = document.cookie.match(/accessToken=([^;]+)/);
+        if (cookieMatch) return cookieMatch[1];
+        return null;
+      };
+
+      const token = getToken();
       
-      // Add token to URL query or use auth header (Socket.IO style)
-      const wsUrl = token ? `${url}?token=${token}` : url;
+      if (!token) {
+        console.warn('No JWT token available for WebSocket connection');
+        setIsConnecting(false);
+        onError?.(new Event('no-token') as any);
+        return;
+      }
+      
+      // Add token to URL query for authentication
+      const wsUrl = `${url}?token=${encodeURIComponent(token)}`;
       ws.current = new WebSocket(wsUrl);
 
       ws.current.onopen = () => {
         setIsConnected(true);
         setIsConnecting(false);
         retryCount.current = 0;
+        // Send authentication message if needed (some backends require this)
+        if (ws.current && token) {
+          try {
+            ws.current.send(JSON.stringify({
+              type: 'auth',
+              token: token,
+            }));
+          } catch {
+            // Some backends authenticate via query param only
+          }
+        }
         onOpen?.();
       };
 
@@ -74,17 +101,33 @@ export function useWebSocket({
 
       ws.current.onerror = (error) => {
         setIsConnecting(false);
+        console.error('WebSocket error:', error);
         onError?.(error);
       };
 
       ws.current.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data) as WebSocketMessage;
-          onMessage?.(message);
+          const message = JSON.parse(event.data);
+          
+          // Handle authentication response
+          if (message.type === 'auth' && message.status === 'error') {
+            console.error('WebSocket authentication failed:', message.error);
+            setIsConnected(false);
+            setIsConnecting(false);
+            ws.current?.close();
+            onError?.(new Event('auth-failed') as any);
+            return;
+          }
+          
+          // Handle regular messages
+          if (message.type && message.payload !== undefined) {
+            onMessage?.(message);
+          }
         } catch (error) {
           console.error('Failed to parse WebSocket message:', error);
         }
       };
+
     } catch (error) {
       setIsConnecting(false);
       console.error('Failed to connect WebSocket:', error);

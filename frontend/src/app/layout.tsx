@@ -3,6 +3,8 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@/components/providers';
 import { Toaster } from '@/components/ui/toaster';
+import { AppErrorBoundary } from './error-boundary';
+import { SkipLink } from '@/components/accessibility/skip-link';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -20,10 +22,13 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-        <Providers>
-          {children}
-          <Toaster />
-        </Providers>
+        <AppErrorBoundary>
+          <SkipLink />
+          <Providers>
+            {children}
+            <Toaster />
+          </Providers>
+        </AppErrorBoundary>
       </body>
     </html>
   );
